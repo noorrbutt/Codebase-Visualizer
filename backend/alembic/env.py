@@ -15,6 +15,7 @@ from app.config import settings
 from app.database import Base
 import app.models.repository  # noqa: F401
 import app.models.file_node  # noqa: F401
+import app.models.file_edge  # noqa: F401
 
 config = context.config
 

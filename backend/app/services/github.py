@@ -83,6 +83,19 @@ class GithubService:
             if extension not in SUPPORTED_EXTENSIONS:
                 continue
 
+            path_lower = path.lower()
+            if (
+                "/migrations/" in path_lower
+                or "/static/" in path_lower
+                or "/docs/" in path_lower
+                or "/.github/" in path_lower
+            ):
+                continue
+
+            basename = path_lower.rsplit("/", 1)[-1]
+            if basename in {"__init__.py", "manage.py"}:
+                continue
+
             size = item.get("size")
             if size is None or size > MAX_FILE_SIZE_BYTES:
                 continue

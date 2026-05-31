@@ -6,6 +6,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.database import SessionLocal, get_db
+from app.models.file_edge import FileEdge as FileEdgeModel
 from app.models.file_node import FileNode
 from app.models.repository import Repository
 from app.schemas.repository import AnalyzeResponse, AnalyzeRequest, FileEdge, FileNodeOut, RepoListItem
@@ -125,9 +126,10 @@ def _build_repo_summary(repo_id: int, repo_name: str, file_paths: list[str]) -> 
         repo.summary = summary
         repo.status = "ready"
         db.commit()
+        logger.info(f"Repo summary saved for repo {repo_id}")
     except Exception as exc:
         db.rollback()
-        logger.error("Repo summary background task failed for repo %s: %s", repo_id, exc)
+        logger.error(f"Repo summary background task failed for repo {repo_id}: {exc}")
         repo = db.get(Repository, repo_id)
         if repo:
             repo.status = "failed"
@@ -176,6 +178,7 @@ def analyze_repo(
     try:
         existing = db.query(Repository).filter(Repository.github_url == str(request.github_url)).first()
         if existing:
+            db.query(FileEdgeModel).filter(FileEdgeModel.repo_id == existing.id).delete()
             db.query(FileNode).filter(FileNode.repo_id == existing.id).delete()
             db.delete(existing)
             db.flush()
@@ -187,14 +190,24 @@ def analyze_repo(
             node.repo_id = repo.id
             db.add(node)
 
+        edges = _build_edges(parsed_results)
+        edge_records = [
+            FileEdgeModel(repo_id=repo.id, source=edge.source, target=edge.target)
+            for edge in edges
+        ]
+        for edge_record in edge_records:
+            db.add(edge_record)
+
         db.commit()
     except Exception as exc:
         db.rollback()
-        logger.error("Failed to save repository %s: %s", request.github_url, exc)
+        logger.error(f"Failed to save repository {request.github_url}: {exc}")
         raise HTTPException(status_code=500, detail="Failed to persist repository data")
 
-    edges = _build_edges(parsed_results)
     background_tasks.add_task(_build_repo_summary, repo.id, repo_name, file_paths)
+
+    connected_paths = {edge.source for edge in edges} | {edge.target for edge in edges}
+    connected_nodes = [node for node in node_records if node.file_path in connected_paths]
 
     return AnalyzeResponse(
         id=repo.id,
@@ -202,7 +215,7 @@ def analyze_repo(
         owner=repo.owner,
         status=repo.status,
         summary=repo.summary,
-        nodes=_normalize_file_records(node_records),
+        nodes=_normalize_file_records(connected_nodes),
         edges=edges,
     )
 
@@ -230,7 +243,7 @@ def get_repo(repo_id: int, db: Session = Depends(get_db)) -> AnalyzeResponse:
         raise HTTPException(status_code=404, detail="Repository not found")
 
     nodes = db.query(FileNode).filter(FileNode.repo_id == repo_id).all()
-
+    edges = db.query(FileEdgeModel).filter(FileEdgeModel.repo_id == repo_id).all()
 
     return AnalyzeResponse(
         id=repo.id,
@@ -239,5 +252,5 @@ def get_repo(repo_id: int, db: Session = Depends(get_db)) -> AnalyzeResponse:
         status=repo.status,
         summary=repo.summary,
         nodes=_normalize_file_records(nodes),
-        edges=[],  
+        edges=edges,
     )

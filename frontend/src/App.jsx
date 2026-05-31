@@ -428,9 +428,14 @@ function NodePanel({ node, onClose }) {
 function GraphPage({ data, repoUrl, onReset }) {
   const [selected, setSelected] = useState(null);
   const [filter, setFilter] = useState("all");
+  const [showAllFiles, setShowAllFiles] = useState(false);
   const canvasRef = useRef(null);
 
-  const filteredNodes = data.nodes.filter((n) =>
+  const connectedPaths = new Set(data.edges.flatMap((e) => [e.source, e.target]));
+  const connectedNodes = data.nodes.filter((n) => connectedPaths.has(n.path));
+  const visibleNodes = showAllFiles ? data.nodes : connectedNodes;
+
+  const filteredNodes = visibleNodes.filter((n) =>
     filter === "all" ? true : n.language === filter
   );
   const filteredEdges = data.edges.filter((e) =>
@@ -473,7 +478,22 @@ function GraphPage({ data, repoUrl, onReset }) {
           )}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-          <span style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 12, color: "#9CA3AF" }}>{data.nodes.length} files · {data.edges.length} connections</span>
+          <span style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 12, color: "#9CA3AF" }}>{filteredNodes.length} files · {filteredEdges.length} connections</span>
+          <button
+            onClick={() => setShowAllFiles((prev) => !prev)}
+            style={{
+              background: showAllFiles ? "#111" : "transparent",
+              color: showAllFiles ? "#fff" : "#6B7280",
+              border: `1px solid ${showAllFiles ? "#111" : "#E5E7EB"}`,
+              borderRadius: 8,
+              padding: "6px 10px",
+              fontFamily: "'DM Sans', sans-serif",
+              fontSize: 12,
+              cursor: "pointer",
+            }}
+          >
+            {showAllFiles ? "Show connected only" : "Show all files"}
+          </button>
         </div>
       </header>
 

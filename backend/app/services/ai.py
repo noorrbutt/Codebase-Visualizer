@@ -26,9 +26,10 @@ class AIService:
             raise AIServiceError("GROQ_API_KEY not configured")
 
         prompt = (
-            "Provide a concise 3-4 sentence plain-English summary of what this GitHub repository likely does "
-            f"based on its structure and file names. Repository: {repo_name}. Files: {', '.join(file_list[:50])}. "
-            "Do not invent unavailable implementation details."
+            "Write a 2-3 sentence plain-English summary as a senior developer explaining this repository to a teammate. "
+            "Cover what the project does, the main technology or framework, and the core modules or areas of responsibility. "
+            f"Base it only on the repository name and file structure: {repo_name}, files: {', '.join(file_list[:50])}. "
+            "Keep it factual and under 60 words."
         )
 
         logger.info("Sending repo summary prompt to Groq for %s", repo_name)
