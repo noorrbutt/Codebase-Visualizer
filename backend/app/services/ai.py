@@ -34,7 +34,7 @@ class AIService:
         logger.info("Sending repo summary prompt to Groq for %s", repo_name)
         try:
             response = self.client.chat.completions.create(
-                model="llama-3.1-70b-versatile",
+                model="llama-3.3-70b-versatile",
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=200,
                 temperature=0.7,
@@ -60,7 +60,7 @@ class AIService:
         logger.info("Sending file analysis prompt to Groq for %s", file_path)
         try:
             response = self.client.chat.completions.create(
-                model="llama-3.1-70b-versatile",
+                model="llama-3.3-70b-versatile",
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=150,
                 temperature=0.5,

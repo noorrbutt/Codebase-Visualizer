@@ -174,6 +174,12 @@ def analyze_repo(
     )
 
     try:
+        existing = db.query(Repository).filter(Repository.github_url == str(request.github_url)).first()
+        if existing:
+            db.query(FileNode).filter(FileNode.repo_id == existing.id).delete()
+            db.delete(existing)
+            db.flush()
+
         db.add(repo)
         db.flush()
 
@@ -217,7 +223,6 @@ def list_repos(db: Session = Depends(get_db)) -> list[RepoListItem]:
         for repo in repos
     ]
 
-
 @router.get("/{repo_id}", response_model=AnalyzeResponse)
 def get_repo(repo_id: int, db: Session = Depends(get_db)) -> AnalyzeResponse:
     repo = db.query(Repository).filter(Repository.id == repo_id).first()
@@ -225,15 +230,7 @@ def get_repo(repo_id: int, db: Session = Depends(get_db)) -> AnalyzeResponse:
         raise HTTPException(status_code=404, detail="Repository not found")
 
     nodes = db.query(FileNode).filter(FileNode.repo_id == repo_id).all()
-    file_paths = [node.file_path for node in nodes]
-    parsed_results: dict[str, list[str]] = {}
 
-    if file_paths:
-        contents = github_service.fetch_files_concurrent(repo.owner, repo.repo_name, repo.default_branch, file_paths)
-        for path, content in contents.items():
-            parsed_results[path] = code_parser.parse(path, content)["imports"]
-
-    edges = _build_edges(parsed_results)
 
     return AnalyzeResponse(
         id=repo.id,
@@ -242,5 +239,5 @@ def get_repo(repo_id: int, db: Session = Depends(get_db)) -> AnalyzeResponse:
         status=repo.status,
         summary=repo.summary,
         nodes=_normalize_file_records(nodes),
-        edges=edges,
+        edges=[],  
     )
