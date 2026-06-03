@@ -31,7 +31,6 @@ function StatCard({ label, value, sub, accent }) {
 function LangDonut({ nodes }) {
   const canvasRef = useRef(null);
 
-  // computed outside effect for legend render
   const counts = {};
   nodes.forEach((n) => { counts[n.language || "unknown"] = (counts[n.language || "unknown"] || 0) + 1; });
   const entries = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 6);
@@ -44,7 +43,6 @@ function LangDonut({ nodes }) {
     const W = canvas.width, H = canvas.height;
     const cx = W / 2, cy = H / 2, r = Math.min(W, H) / 2 - 8, inner = r * 0.58;
 
-    // recompute inside effect to avoid stale-dep warning
     const ec = {};
     nodes.forEach((n) => { ec[n.language || "unknown"] = (ec[n.language || "unknown"] || 0) + 1; });
     const ent = Object.entries(ec).sort((a, b) => b[1] - a[1]).slice(0, 6);
@@ -102,7 +100,6 @@ function ComplexityChart({ nodes }) {
     const ctx = canvas.getContext("2d");
     const W = canvas.width, H = canvas.height;
 
-    // compute inside effect to avoid stale-dep warning
     const counts = { low: 0, medium: 0, high: 0, unknown: 0 };
     nodes.forEach((n) => {
       const c = n.ai_complexity?.toLowerCase();
@@ -338,42 +335,77 @@ function useForceGraph(nodes, edges, canvasRef, selectedNode, onSelectNode) {
     ctx.save();
     ctx.translate(x, y);
     ctx.scale(scale, scale);
+
     const nodeMap = {};
     simRef.current.forEach((n) => { nodeMap[n.id] = n; });
+
+    // Build set of edge IDs connected to selected node
+    const highlightedNodeIds = new Set();
+    if (selectedNode) {
+      highlightedNodeIds.add(selectedNode.id);
+      edges.forEach((e) => {
+        if (e.source === selectedNode.id || e.source === selectedNode.path) highlightedNodeIds.add(e.target);
+        if (e.target === selectedNode.id || e.target === selectedNode.path) highlightedNodeIds.add(e.source);
+      });
+    }
+
+    // Draw edges
     edges.forEach((e) => {
       const s = nodeMap[e.source], t = nodeMap[e.target];
       if (!s || !t) return;
+
+      const isHighlighted = selectedNode && (
+        e.source === selectedNode.id || e.source === selectedNode.path ||
+        e.target === selectedNode.id || e.target === selectedNode.path
+      );
+
       ctx.beginPath();
       ctx.moveTo(s.x, s.y);
       ctx.lineTo(t.x, t.y);
-      ctx.strokeStyle = "rgba(156,163,175,0.25)";
-      ctx.lineWidth = 1 / scale;
+      ctx.strokeStyle = isHighlighted ? "rgba(99,102,241,0.7)" : "rgba(156,163,175,0.15)";
+      ctx.lineWidth = isHighlighted ? 1.5 / scale : 0.8 / scale;
       ctx.stroke();
     });
+
+    // Draw nodes — dimmed when something is selected and they're not connected
     simRef.current.forEach((n) => {
       const isSelected = selectedNode?.id === n.id;
       const isHovered = hoveredRef.current === n.id;
-      const r = Math.max(4, Math.min(10, 4 + n.import_count));
+      const isConnected = highlightedNodeIds.has(n.id) || highlightedNodeIds.has(n.path);
+      const isDimmed = selectedNode && !isSelected && !isConnected;
+
+      // Bigger nodes: hub files (many imports) are visually larger
+      const r = Math.max(5, Math.min(14, 5 + (n.import_count || 0) * 1.5));
+
       ctx.beginPath();
       ctx.arc(n.x, n.y, r / scale, 0, Math.PI * 2);
       ctx.fillStyle = getLangColor(n.language);
-      ctx.globalAlpha = isSelected ? 1 : isHovered ? 0.9 : 0.7;
+      ctx.globalAlpha = isDimmed ? 0.15 : isSelected ? 1 : isHovered ? 0.95 : 0.75;
       ctx.fill();
       ctx.globalAlpha = 1;
+
       if (isSelected || isHovered) {
+        // Glow ring
         ctx.beginPath();
-        ctx.arc(n.x, n.y, (r + 3) / scale, 0, Math.PI * 2);
+        ctx.arc(n.x, n.y, (r + 4) / scale, 0, Math.PI * 2);
         ctx.strokeStyle = getLangColor(n.language);
-        ctx.lineWidth = 1.5 / scale;
+        ctx.lineWidth = 2 / scale;
+        ctx.globalAlpha = isSelected ? 1 : 0.6;
         ctx.stroke();
+        ctx.globalAlpha = 1;
       }
-      if (scale > 0.6 || isSelected || isHovered) {
+
+      // Labels: always show for selected/hovered, show at higher zoom otherwise
+      if (!isDimmed && (scale > 0.6 || isSelected || isHovered)) {
         const label = n.path.split("/").pop();
-        ctx.font = `${11 / scale}px 'DM Mono', monospace`;
-        ctx.fillStyle = isSelected ? "#111" : "#6B7280";
-        ctx.fillText(label, n.x + (r + 3) / scale, n.y + 4 / scale);
+        ctx.font = `${isSelected ? "500 " : ""}${11 / scale}px 'DM Mono', monospace`;
+        ctx.fillStyle = isSelected ? "#111" : isConnected ? "#374151" : "#9CA3AF";
+        ctx.globalAlpha = isDimmed ? 0.1 : 1;
+        ctx.fillText(label, n.x + (r + 4) / scale, n.y + 4 / scale);
+        ctx.globalAlpha = 1;
       }
     });
+
     ctx.restore();
   }, [canvasRef, edges, selectedNode]);
 
@@ -434,7 +466,7 @@ function useForceGraph(nodes, edges, canvasRef, selectedNode, onSelectNode) {
     const wx = (ex - rect.left - x) / scale;
     const wy = (ey - rect.top - y) / scale;
     return simRef.current.find((n) => {
-      const r = Math.max(4, Math.min(10, 4 + n.import_count));
+      const r = Math.max(5, Math.min(14, 5 + (n.import_count || 0) * 1.5));
       return Math.hypot(n.x - wx, n.y - wy) <= r / scale + 4;
     }) || null;
   }, [canvasRef]);
@@ -499,34 +531,34 @@ function useForceGraph(nodes, edges, canvasRef, selectedNode, onSelectNode) {
 // ── Node detail panel ──────────────────────────────────────────────────
 function NodeDetail({ node, edges, onClose }) {
   if (!node) return null;
-  const inbound = edges.filter((e) => e.target === node.path || e.target === String(node.id)).length;
-  const outbound = edges.filter((e) => e.source === node.path || e.source === String(node.id)).length;
+
+  const inbound = edges.filter((e) => e.target === node.id || e.target === node.path).length;
+  const outbound = edges.filter((e) => e.source === node.id || e.source === node.path).length;
 
   return (
-    <div style={{ background: "#fff", borderLeft: "1px solid #E5E7EB", width: 260, flexShrink: 0, overflowY: "auto", display: "flex", flexDirection: "column" }}>
-      <div style={{ padding: "12px 14px", borderBottom: "1px solid #F3F4F6", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <p style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: "#9CA3AF", margin: "0 0 3px", letterSpacing: "0.06em" }}>FILE DETAIL</p>
-          <p style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: "#111", margin: 0, wordBreak: "break-all", lineHeight: 1.4 }}>{node.path}</p>
-        </div>
-        <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "#9CA3AF", fontSize: 18, lineHeight: 1, padding: "0 0 0 8px", flexShrink: 0 }}>×</button>
+    <div style={{ width: 260, borderLeft: "1px solid #E5E7EB", background: "#fff", display: "flex", flexDirection: "column", overflow: "hidden", flexShrink: 0 }}>
+      <div style={{ padding: "10px 14px", borderBottom: "1px solid #F3F4F6", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <span style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 11, color: "#9CA3AF", letterSpacing: "0.05em", textTransform: "uppercase" }}>File details</span>
+        <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "#9CA3AF", fontSize: 16, lineHeight: 1, padding: 2 }}>×</button>
       </div>
-      <div style={{ padding: "12px 14px", borderBottom: "1px solid #F3F4F6" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-          {[
-            { label: "Language", value: node.language || "—" },
-            { label: "Lines", value: node.line_count?.toLocaleString() || "0" },
-            { label: "Imports", value: node.import_count || "0" },
-            { label: "Complexity", value: node.ai_complexity || "—" },
-            { label: "Inbound", value: inbound },
-            { label: "Outbound", value: outbound },
-          ].map(({ label, value }) => (
-            <div key={label} style={{ background: "#F9FAFB", borderRadius: 6, padding: "7px 9px" }}>
-              <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 10, color: "#9CA3AF", margin: "0 0 2px" }}>{label}</p>
-              <p style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, color: "#111", margin: 0, textTransform: "capitalize" }}>{value}</p>
-            </div>
-          ))}
-        </div>
+      <div style={{ padding: "10px 14px", borderBottom: "1px solid #F3F4F6" }}>
+        <p style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: "#111", margin: "0 0 3px", wordBreak: "break-all" }}>{node.path.split("/").pop()}</p>
+        <p style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: "#D1D5DB", margin: 0, wordBreak: "break-all" }}>{node.path}</p>
+      </div>
+      <div style={{ padding: "10px 14px", borderBottom: "1px solid #F3F4F6", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+        {[
+          { label: "Language", value: node.language || "—" },
+          { label: "Lines", value: node.line_count?.toLocaleString() || "0" },
+          { label: "Imports", value: node.import_count || "0" },
+          { label: "Complexity", value: node.ai_complexity || "—" },
+          { label: "Inbound", value: inbound },
+          { label: "Outbound", value: outbound },
+        ].map(({ label, value }) => (
+          <div key={label} style={{ background: "#F9FAFB", borderRadius: 6, padding: "7px 9px" }}>
+            <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 10, color: "#9CA3AF", margin: "0 0 2px" }}>{label}</p>
+            <p style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, color: "#111", margin: 0, textTransform: "capitalize" }}>{value}</p>
+          </div>
+        ))}
       </div>
       {node.ai_role && (
         <div style={{ padding: "10px 14px", borderBottom: "1px solid #F3F4F6" }}>
@@ -583,6 +615,7 @@ export default function DashboardPage({ data, onReset }) {
 
   return (
     <div style={{ height: "100vh", display: "flex", flexDirection: "column", background: "#FAFAF9" }}>
+      {/* Header */}
       <header style={{ height: 52, borderBottom: "1px solid #E5E7EB", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 1.25rem", background: "#fff", flexShrink: 0, zIndex: 20 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <button onClick={onReset} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex", alignItems: "center", gap: 5, color: "#6B7280", fontFamily: "'DM Sans', sans-serif", fontSize: 13 }}>
@@ -607,15 +640,19 @@ export default function DashboardPage({ data, onReset }) {
         </a>
       </header>
 
+      {/* AI Summary — now a proper hero banner, not a grey footnote */}
       {data.summary && (
-        <div style={{ borderBottom: "1px solid #F3F4F6", padding: "8px 1.25rem", background: "#fff", flexShrink: 0 }}>
-          <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 13, color: "#4B5563", margin: 0, lineHeight: 1.5 }}>
-            <span style={{ color: "#9CA3AF", marginRight: 8 }}>AI summary</span>
+        <div style={{ borderBottom: "1px solid #E5E7EB", padding: "12px 1.25rem", background: "#fff", flexShrink: 0, display: "flex", alignItems: "flex-start", gap: 10 }}>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "#F0F0FF", border: "1px solid #E0E0FF", borderRadius: 6, padding: "3px 8px", fontFamily: "'DM Sans', sans-serif", fontSize: 11, color: "#6366F1", fontWeight: 500, flexShrink: 0, marginTop: 1 }}>
+            ✦ AI
+          </span>
+          <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 14, color: "#1F2937", margin: 0, lineHeight: 1.6 }}>
             {data.summary}
           </p>
         </div>
       )}
 
+      {/* Overview tab */}
       {activeTab === "overview" && (
         <div style={{ flex: 1, overflowY: "auto", padding: "1.25rem" }}>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 16 }}>
@@ -672,6 +709,7 @@ export default function DashboardPage({ data, onReset }) {
         </div>
       )}
 
+      {/* Graph tab */}
       {activeTab === "graph" && (
         <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
           <div style={{ flex: 1, position: "relative", overflow: "hidden" }}>
@@ -684,6 +722,7 @@ export default function DashboardPage({ data, onReset }) {
               onWheel={onWheel}
               onClick={onClick}
             />
+            {/* Language filter */}
             <div style={{ position: "absolute", left: 12, bottom: 12, background: "#fff", border: "1px solid #E5E7EB", borderRadius: 8, padding: "8px 12px", display: "flex", flexDirection: "column", gap: 6 }}>
               <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 10, color: "#9CA3AF", margin: 0, letterSpacing: "0.06em" }}>LANGUAGE</p>
               <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 8px", maxWidth: 240 }}>
@@ -695,14 +734,24 @@ export default function DashboardPage({ data, onReset }) {
                 ))}
               </div>
             </div>
+            {/* Hint */}
             <div style={{ position: "absolute", right: selectedNode ? 272 : 12, bottom: 12 }}>
               <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 11, color: "#9CA3AF", margin: 0 }}>scroll to zoom · drag to pan · click node for details</p>
             </div>
+            {/* Selected node name overlay */}
+            {selectedNode && (
+              <div style={{ position: "absolute", top: 12, left: "50%", transform: "translateX(-50%)", background: "#fff", border: "1px solid #E5E7EB", borderRadius: 8, padding: "6px 14px", display: "flex", alignItems: "center", gap: 8, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+                <span style={{ width: 7, height: 7, borderRadius: "50%", background: getLangColor(selectedNode.language), flexShrink: 0 }} />
+                <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, color: "#111" }}>{selectedNode.path.split("/").pop()}</span>
+                <button onClick={() => setSelectedNode(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "#9CA3AF", fontSize: 14, padding: "0 0 0 4px", lineHeight: 1 }}>×</button>
+              </div>
+            )}
           </div>
           <NodeDetail node={selectedNode} edges={data.edges} onClose={() => setSelectedNode(null)} />
         </div>
       )}
 
+      {/* Files tab */}
       {activeTab === "files" && (
         <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
           <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>

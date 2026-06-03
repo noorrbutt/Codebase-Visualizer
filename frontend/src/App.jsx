@@ -156,7 +156,8 @@ export default function App() {
       const json = await res.json();
       setData(json);
       startPolling(json.id);
-    } catch (_err) {
+    } catch {
+      // fetch or parse error — show message and return to home
       setLoading(false);
       setView("home");
       alert("Could not connect to the backend. Make sure it's running on port 8000.");
@@ -176,7 +177,9 @@ export default function App() {
           setLoading(false);
           setView("dashboard");
         }
-      } catch (_err) { /* polling error — will retry next interval */ }
+      } catch {
+        // polling error — will retry next interval
+      }
     }, 3000);
   };
 
