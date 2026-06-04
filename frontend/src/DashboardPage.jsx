@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 
 const LANG_COLOR = {
   python: "#3B82F6",
@@ -581,16 +581,41 @@ export default function DashboardPage({ data, onReset }) {
   const [activeTab, setActiveTab] = useState("overview");
   const [selectedNode, setSelectedNode] = useState(null);
   const [langFilter, setLangFilter] = useState("all");
+  const [showTopGraphNodes, setShowTopGraphNodes] = useState(() => data.nodes.length > 150);
   const canvasRef = useRef(null);
+  const GRAPH_NODE_LIMIT = 120;
 
-  const filteredNodes = data.nodes.filter((n) => langFilter === "all" || n.language === langFilter);
-  const filteredEdges = data.edges.filter((e) =>
-    filteredNodes.find((n) => n.id === e.source || n.path === e.source) &&
-    filteredNodes.find((n) => n.id === e.target || n.path === e.target)
+  const connectionCounts = useMemo(() => {
+    const counts = {};
+    data.edges.forEach((e) => {
+      counts[e.source] = (counts[e.source] || 0) + 1;
+      counts[e.target] = (counts[e.target] || 0) + 1;
+    });
+    return counts;
+  }, [data.edges]);
+
+  const filteredNodes = useMemo(
+    () => data.nodes.filter((n) => langFilter === "all" || n.language === langFilter),
+    [data.nodes, langFilter]
+  );
+
+  const visibleNodes = useMemo(() => {
+    if (!showTopGraphNodes) return filteredNodes;
+    return [...filteredNodes]
+      .sort((a, b) => (connectionCounts[b.path] || 0) - (connectionCounts[a.path] || 0))
+      .slice(0, GRAPH_NODE_LIMIT);
+  }, [filteredNodes, showTopGraphNodes, connectionCounts]);
+
+  const filteredEdges = useMemo(
+    () => data.edges.filter((e) =>
+      visibleNodes.find((n) => n.id === e.source || n.path === e.source) &&
+      visibleNodes.find((n) => n.id === e.target || n.path === e.target)
+    ),
+    [data.edges, visibleNodes]
   );
 
   const { onMouseDown, onMouseMove, onMouseUp, onWheel, onClick } =
-    useForceGraph(filteredNodes, filteredEdges, canvasRef, selectedNode, setSelectedNode);
+    useForceGraph(visibleNodes, filteredEdges, canvasRef, selectedNode, setSelectedNode);
 
   useEffect(() => {
     if (activeTab !== "graph") return;
@@ -723,7 +748,7 @@ export default function DashboardPage({ data, onReset }) {
               onClick={onClick}
             />
             {/* Language filter */}
-            <div style={{ position: "absolute", left: 12, bottom: 12, background: "#fff", border: "1px solid #E5E7EB", borderRadius: 8, padding: "8px 12px", display: "flex", flexDirection: "column", gap: 6 }}>
+            <div style={{ position: "absolute", left: 12, bottom: 12, background: "#fff", border: "1px solid #E5E7EB", borderRadius: 8, padding: "8px 12px", display: "flex", flexDirection: "column", gap: 6, maxWidth: 320 }}>
               <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 10, color: "#9CA3AF", margin: 0, letterSpacing: "0.06em" }}>LANGUAGE</p>
               <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 8px", maxWidth: 240 }}>
                 {langs.map((l) => (
@@ -734,6 +759,14 @@ export default function DashboardPage({ data, onReset }) {
                 ))}
               </div>
             </div>
+            {data.nodes.length > GRAPH_NODE_LIMIT && (
+              <div style={{ position: "absolute", left: 12, top: 12, background: "#fff", border: "1px solid #E5E7EB", borderRadius: 8, padding: "8px 12px", display: "flex", alignItems: "center", gap: 8, fontFamily: "'DM Sans', sans-serif", fontSize: 11, color: "#4B5563" }}>
+                <span>Graph limited to top {GRAPH_NODE_LIMIT} files by connections.</span>
+                <button onClick={() => setShowTopGraphNodes((value) => !value)} style={{ background: showTopGraphNodes ? "#111" : "transparent", color: showTopGraphNodes ? "#fff" : "#6B7280", border: `1px solid ${showTopGraphNodes ? "#111" : "#E5E7EB"}`, borderRadius: 5, padding: "3px 8px", cursor: "pointer" }}>
+                  {showTopGraphNodes ? "Show full graph" : `Show top ${GRAPH_NODE_LIMIT}`}
+                </button>
+              </div>
+            )}
             {/* Hint */}
             <div style={{ position: "absolute", right: selectedNode ? 272 : 12, bottom: 12 }}>
               <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 11, color: "#9CA3AF", margin: 0 }}>scroll to zoom · drag to pan · click node for details</p>
