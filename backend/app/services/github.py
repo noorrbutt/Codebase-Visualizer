@@ -32,7 +32,7 @@ class GithubService:
 
     def get_repo_metadata(self, owner: str, repo: str) -> dict:
         url = f"https://api.github.com/repos/{owner}/{repo}"
-        logger.info("Calling GitHub repo metadata API: {url}", url=url)
+        logger.info("Calling GitHub repo metadata API: %s", url)
         response = requests.get(url, headers=self._get_headers(), timeout=10)
 
         if response.status_code == 404:
@@ -49,12 +49,12 @@ class GithubService:
         response.raise_for_status()
 
         metadata = response.json()
-        logger.info("GitHub repo metadata received for {owner}/{repo}", owner=owner, repo=repo)
+        logger.info("GitHub repo metadata received for %s/%s", owner, repo)
         return metadata
 
     def get_file_tree(self, owner: str, repo: str, branch: str) -> list[dict]:
         url = f"https://api.github.com/repos/{owner}/{repo}/git/trees/{branch}?recursive=1"
-        logger.info("Fetching GitHub tree: {url}", url=url)
+        logger.info("Fetching GitHub tree: %s", url)
         response = requests.get(url, headers=self._get_headers(), timeout=10)
 
         if response.status_code == 404:
@@ -102,12 +102,12 @@ class GithubService:
 
             filtered.append(item)
 
-        logger.info("Filtered GitHub tree to {count} supported files", count=len(filtered))
+        logger.info("Filtered GitHub tree to %s supported files", len(filtered))
         return filtered
 
     def get_file_content(self, owner: str, repo: str, branch: str, path: str) -> str:
         url = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{path}"
-        logger.info("Fetching raw file content: {url}", url=url)
+        logger.info("Fetching raw file content: %s", url)
         response = requests.get(url, headers=self._get_headers(), timeout=10)
         response.raise_for_status()
         return response.text
@@ -132,7 +132,7 @@ class GithubService:
         return contents
 
     def parse_repo_url(self, url: str) -> tuple[str, str]:
-        logger.info("Parsing GitHub URL: {url}", url=url)
+        logger.info("Parsing GitHub URL: %s", url)
         parsed = urlparse(url)
         if parsed.scheme not in {"https", "http"}:
             raise RepoParseError("URL must start with http:// or https://")

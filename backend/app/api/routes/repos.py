@@ -127,10 +127,10 @@ def _build_repo_summary(repo_id: int, repo_name: str, file_paths: list[str]) -> 
         repo.summary = summary
         repo.status = "ready"
         db.commit()
-        logger.info(f"Repo summary saved for repo {repo_id}")
+        logger.info("Repo summary saved for repo %s", repo_id)
     except Exception as exc:
         db.rollback()
-        logger.error(f"Repo summary background task failed for repo {repo_id}: {exc}")
+        logger.error("Repo summary background task failed for repo %s: %s", repo_id, exc)
         repo = db.get(Repository, repo_id)
         if repo:
             repo.status = "failed"
@@ -238,7 +238,7 @@ def analyze_repo(
         db.commit()
     except Exception as exc:
         db.rollback()
-        logger.error(f"Failed to save repository {request.github_url}: {exc}")
+        logger.error("Failed to save repository %s: %s", request.github_url, exc)
         raise HTTPException(status_code=500, detail="Failed to persist repository data")
 
     background_tasks.add_task(_build_repo_summary, repo.id, repo_name, file_paths)

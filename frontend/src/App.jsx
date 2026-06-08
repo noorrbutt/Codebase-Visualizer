@@ -1,33 +1,21 @@
 import { useState, useEffect, useRef } from "react";
 import DashboardPage from "./DashboardPage";
+import { API, getLangColor } from "./utils/lang";
 
-const API = "http://127.0.0.1:8000";
-
-const LANG_COLOR = {
-  python: "#3B82F6",
-  javascript: "#F59E0B",
-  typescript: "#3B82F6",
-  css: "#8B5CF6",
-  html: "#EF4444",
-  markdown: "#6B7280",
-  default: "#9CA3AF",
-};
-
-function getLangColor(lang) {
-  return LANG_COLOR[lang?.toLowerCase()] || LANG_COLOR.default;
-}
-
-function HomePage({ onAnalyze, loading }) {
+function HomePage({ onAnalyze, loading, externalError, onClearError }) {
   const [url, setUrl] = useState("");
   const [error, setError] = useState("");
 
   const handleSubmit = (e) => {
     e.preventDefault();
     setError("");
+    onClearError();
     if (!url.trim()) return setError("Paste a GitHub URL to get started.");
     if (!url.includes("github.com/")) return setError("Must be a github.com URL.");
     onAnalyze(url.trim());
   };
+
+  const errorMessage = error || externalError;
 
   return (
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "2rem", background: "var(--bg)", backgroundImage: "radial-gradient(#E5E7EB 1px, transparent 1px)", backgroundSize: "24px 24px" }}>
@@ -69,11 +57,11 @@ function HomePage({ onAnalyze, loading }) {
               {loading ? "Analyzing…" : "Visualize →"}
             </button>
           </div>
-          {error && <p style={{ margin: "8px 0 0", fontSize: 13, color: "#EF4444", fontFamily: "'DM Sans', sans-serif" }}>{error}</p>}
+          {errorMessage && <p style={{ margin: "8px 0 0", fontSize: 13, color: "#EF4444", fontFamily: "'DM Sans', sans-serif" }}>{errorMessage}</p>}
         </form>
 
         <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 24, flexWrap: "wrap" }}>
-          {["Python", "JavaScript", "TypeScript", "HTML/CSS"].map((l) => (
+          {['Python', 'JavaScript', 'TypeScript', 'HTML/CSS'].map((l) => (
             <span key={l} style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 12, color: "#9CA3AF", display: "flex", alignItems: "center", gap: 5 }}>
               <span style={{ width: 6, height: 6, borderRadius: "50%", background: getLangColor(l.toLowerCase().split("/")[0]), display: "inline-block" }} />
               {l}
@@ -84,6 +72,7 @@ function HomePage({ onAnalyze, loading }) {
     </div>
   );
 }
+
 
 function LoadingPage({ repoName, status }) {
   const [dots, setDots] = useState(0);
@@ -139,6 +128,7 @@ export default function App() {
   const [repoName, setRepoName] = useState("");
   const [pollStatus, setPollStatus] = useState("queued");
   const [data, setData] = useState(null);
+  const [analysisError, setAnalysisError] = useState("");
   const pollRef = useRef(null);
 
   const analyze = async (url) => {
@@ -160,7 +150,7 @@ export default function App() {
       // fetch or parse error — show message and return to home
       setLoading(false);
       setView("home");
-      alert("Could not connect to the backend. Make sure it's running on port 8000.");
+      setAnalysisError("Could not connect to the backend. Make sure it's running on port 8000.");
     }
   };
 
@@ -224,7 +214,7 @@ export default function App() {
         input:focus { border-color: var(--fg) !important; }
         ::-webkit-scrollbar-thumb { background: #E5E7EB; }
       `}</style>
-      {view === "home" && <HomePage onAnalyze={analyze} loading={loading} />}
+      {view === "home" && <HomePage onAnalyze={analyze} loading={loading} externalError={analysisError} onClearError={() => setAnalysisError("")} />}
       {view === "loading" && <LoadingPage repoName={repoName} status={pollStatus} />}
       {view === "dashboard" && data && <DashboardPage data={data} onReset={reset} />}
     </>
