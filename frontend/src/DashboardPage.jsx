@@ -321,7 +321,7 @@ export default function DashboardPage({ data, onReset }) {
             repoId={data.id}
             repoOwner={data.owner}
             repoName={data.repo_name}
-            repoBranch={data.default_branch || "main"}
+            repoBranch={data.default_branch}
             onClose={() => setSelectedNode(null)}
           />
         </div>
@@ -343,7 +343,7 @@ export default function DashboardPage({ data, onReset }) {
             repoId={data.id}
             repoOwner={data.owner}
             repoName={data.repo_name}
-            repoBranch={data.default_branch || "main"}
+            repoBranch={data.default_branch}
             onClose={() => setSelectedNode(null)}
           />
         </div>

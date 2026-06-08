@@ -161,7 +161,7 @@ export default function App() {
         const res = await fetch(`${API}/repos/${id}`);
         const json = await res.json();
         setPollStatus(json.status);
-        if (json.summary) setData((prev) => ({ ...prev, summary: json.summary, status: json.status }));
+        setData((prev) => ({ ...prev, summary: json.summary, status: json.status, nodes: json.nodes ?? prev.nodes, default_branch: json.default_branch ?? prev.default_branch }));
         if (json.status === "ready" || json.status === "failed") {
           clearInterval(pollRef.current);
           setLoading(false);

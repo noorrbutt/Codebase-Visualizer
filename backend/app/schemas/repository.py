@@ -33,6 +33,7 @@ class AnalyzeResponse(BaseModel):
     id: int
     repo_name: str
     owner: str
+    default_branch: str
     status: str
     summary: str | None
     nodes: list[FileNodeOut]
