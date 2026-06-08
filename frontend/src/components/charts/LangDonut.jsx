@@ -21,14 +21,16 @@ export default function LangDonut({ nodes }) {
   const STROKE = R - INNER;
   const CIRCUMFERENCE = 2 * Math.PI * (R - STROKE / 2);
 
-  let offset = 0;
-  const slices = entries.map(([lang, count]) => {
-    const pct = count / total;
-    const dash = pct * CIRCUMFERENCE;
-    const slice = { lang, count, pct, dash, offset };
-    offset += dash;
-    return slice;
-  });
+  const slices = entries.reduce(
+    (acc, [lang, count]) => {
+      const pct = count / total;
+      const dash = pct * CIRCUMFERENCE;
+      acc.slices.push({ lang, count, pct, dash, offset: acc.off });
+      acc.off += dash;
+      return acc;
+    },
+    { slices: [], off: 0 }
+  ).slices;
 
   return (
     <div style={{ display: "flex", gap: 20, alignItems: "center" }}>
@@ -55,7 +57,7 @@ export default function LangDonut({ nodes }) {
           y={CY - 5}
           textAnchor="middle"
           dominantBaseline="middle"
-          style={{ fontFamily: "'DM Mono', monospace", fontSize: 16, fontWeight: 600, fill: "#111" }}
+          style={{ fontFamily: "'DM Mono', monospace", fontSize: 16, fontWeight: 600, fill: "var(--fg)" }}
         >
           {total}
         </text>
@@ -64,7 +66,7 @@ export default function LangDonut({ nodes }) {
           y={CY + 10}
           textAnchor="middle"
           dominantBaseline="middle"
-          style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 10, fill: "#9CA3AF" }}
+          style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 10, fill: "var(--subtle)" }}
         >
           files
         </text>

@@ -21,6 +21,8 @@ export function useForceGraph(nodes, edges, canvasRef, selectedNode, onSelectNod
     ctx.save();
     ctx.translate(x, y);
     ctx.scale(scale, scale);
+    ctx.fillStyle = "#F8F9FA";
+    ctx.fillRect(0, 0, w, h);
 
     const nodeMap = {};
     simRef.current.forEach((n) => { nodeMap[n.id] = n; });
@@ -46,7 +48,7 @@ export function useForceGraph(nodes, edges, canvasRef, selectedNode, onSelectNod
       ctx.beginPath();
       ctx.moveTo(s.x, s.y);
       ctx.lineTo(t.x, t.y);
-      ctx.strokeStyle = isHighlighted ? "rgba(99,102,241,0.7)" : "rgba(156,163,175,0.15)";
+      ctx.strokeStyle = isHighlighted ? "rgba(99,102,241,0.55)" : "rgba(0,0,0,0.06)";
       ctx.lineWidth = isHighlighted ? 1.5 / scale : 0.8 / scale;
       ctx.stroke();
     });
@@ -79,7 +81,7 @@ export function useForceGraph(nodes, edges, canvasRef, selectedNode, onSelectNod
       if (!isDimmed && (scale > 0.55 || isSelected || isHovered)) {
         const label = n.path.split("/").pop();
         ctx.font = `${isSelected ? "500 " : ""}${11 / scale}px 'DM Mono', monospace`;
-        ctx.fillStyle = isSelected ? "#111" : isConnected ? "#374151" : "#9CA3AF";
+        ctx.fillStyle = isSelected ? "#111827" : isConnected ? "#374151" : "#9CA3AF";
         ctx.globalAlpha = isDimmed ? 0.08 : 1;
         ctx.fillText(label, n.x + (r + 4) / scale, n.y + 4 / scale);
         ctx.globalAlpha = 1;

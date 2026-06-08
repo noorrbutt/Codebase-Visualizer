@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { getLangColor, COMPLEXITY_COLOR, API } from "../../utils/lang";
 
 function Badge({ children, color = "#F3F4F6", textColor = "#374151" }) {
@@ -64,14 +64,6 @@ export default function NodeDetail({ node, edges, repoId, repoOwner, repoName, r
   const [loadingAnalysis, setLoadingAnalysis] = useState(false);
   const [analysisError, setAnalysisError] = useState(null);
 
-  useEffect(() => {
-    // Reset when node changes
-    setTab("info");
-    setContent(null);
-    setAnalysis(null);
-    setAnalysisError(null);
-  }, [node?.id]);
-
   if (!node) return null;
 
   const inbound = edges.filter((e) => e.target === node.id || e.target === node.path).length;
@@ -107,7 +99,7 @@ export default function NodeDetail({ node, edges, repoId, repoOwner, repoName, r
       if (!res.ok) throw new Error("Analysis failed");
       const data = await res.json();
       setAnalysis(data);
-    } catch (err) {
+    } catch {
       setAnalysisError("Analysis failed — check Groq API key.");
     } finally {
       setLoadingAnalysis(false);

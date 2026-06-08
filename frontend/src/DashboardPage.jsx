@@ -12,8 +12,8 @@ function StatCard({ label, value, sub }) {
   return (
     <div
       style={{
-        background: "#fff",
-        border: "1px solid #E5E7EB",
+        background: "var(--surface)",
+        border: "1px solid var(--border)",
         borderRadius: 10,
         padding: "16px 18px",
         display: "flex",
@@ -25,7 +25,7 @@ function StatCard({ label, value, sub }) {
         style={{
           fontFamily: "'DM Sans', sans-serif",
           fontSize: 11,
-          color: "#9CA3AF",
+          color: "var(--subtle)",
           letterSpacing: "0.05em",
           textTransform: "uppercase",
         }}
@@ -36,7 +36,7 @@ function StatCard({ label, value, sub }) {
         style={{
           fontFamily: "'Instrument Serif', Georgia, serif",
           fontSize: 30,
-          color: "#111",
+          color: "var(--fg)",
           lineHeight: 1.1,
         }}
       >
@@ -47,7 +47,7 @@ function StatCard({ label, value, sub }) {
           style={{
             fontFamily: "'DM Sans', sans-serif",
             fontSize: 11,
-            color: "#9CA3AF",
+            color: "var(--subtle)",
           }}
         >
           {sub}
@@ -61,8 +61,8 @@ function ChartCard({ title, children }) {
   return (
     <div
       style={{
-        background: "#fff",
-        border: "1px solid #E5E7EB",
+        background: "var(--surface)",
+        border: "1px solid var(--border)",
         borderRadius: 10,
         padding: "16px 18px",
         display: "flex",
@@ -101,18 +101,18 @@ export default function DashboardPage({ data, onReset }) {
   const connectedCount = new Set(data.edges.flatMap((e) => [e.source, e.target])).size;
 
   return (
-    <div style={{ height: "100vh", display: "flex", flexDirection: "column", background: "#FAFAF9" }}>
+    <div style={{ height: "100vh", display: "flex", flexDirection: "column", background: "var(--bg)" }}>
 
       {/* ── Header ── */}
       <header
         style={{
           height: 52,
-          borderBottom: "1px solid #E5E7EB",
+          borderBottom: "1px solid var(--border)",
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
           padding: "0 1.25rem",
-          background: "#fff",
+          background: "var(--surface)",
           flexShrink: 0,
           zIndex: 20,
         }}
@@ -128,7 +128,7 @@ export default function DashboardPage({ data, onReset }) {
               display: "flex",
               alignItems: "center",
               gap: 5,
-              color: "#6B7280",
+              color: "var(--muted)",
               fontFamily: "'DM Sans', sans-serif",
               fontSize: 13,
             }}
@@ -138,8 +138,8 @@ export default function DashboardPage({ data, onReset }) {
             </svg>
             New
           </button>
-          <span style={{ color: "#E5E7EB" }}>|</span>
-          <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, color: "#9CA3AF" }}>
+          <span style={{ color: "var(--border)" }}>|</span>
+          <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, color: "var(--subtle)" }}>
             {data.owner}/{data.repo_name}
           </span>
           {data.status === "ready" && (
@@ -164,8 +164,8 @@ export default function DashboardPage({ data, onReset }) {
               key={t.id}
               onClick={() => setActiveTab(t.id)}
               style={{
-                background: activeTab === t.id ? "#F3F4F6" : "transparent",
-                color: activeTab === t.id ? "#111" : "#6B7280",
+                background: activeTab === t.id ? "var(--bg)" : "transparent",
+                color: activeTab === t.id ? "var(--fg)" : "var(--muted)",
                 border: "none",
                 borderRadius: 7,
                 padding: "5px 12px",
@@ -187,7 +187,7 @@ export default function DashboardPage({ data, onReset }) {
           style={{
             fontFamily: "'DM Sans', sans-serif",
             fontSize: 12,
-            color: "#6B7280",
+            color: "var(--muted)",
             textDecoration: "none",
             display: "flex",
             alignItems: "center",
@@ -202,9 +202,9 @@ export default function DashboardPage({ data, onReset }) {
       {data.summary && (
         <div
           style={{
-            borderBottom: "1px solid #E5E7EB",
+            borderBottom: "1px solid #FEF3C7",
             padding: "10px 1.25rem",
-            background: "#fff",
+            background: "#FFFBEB",
             flexShrink: 0,
             display: "flex",
             alignItems: "flex-start",
@@ -216,13 +216,13 @@ export default function DashboardPage({ data, onReset }) {
               display: "inline-flex",
               alignItems: "center",
               gap: 4,
-              background: "#F0F0FF",
-              border: "1px solid #E0E0FF",
+              background: "#FEF9C3",
+              border: "1px solid #FDE68A",
               borderRadius: 6,
               padding: "3px 8px",
               fontFamily: "'DM Sans', sans-serif",
               fontSize: 11,
-              color: "#6366F1",
+              color: "#92400E",
               fontWeight: 500,
               flexShrink: 0,
               marginTop: 2,
@@ -315,6 +315,7 @@ export default function DashboardPage({ data, onReset }) {
             onSelectNode={setSelectedNode}
           />
           <NodeDetail
+            key={selectedNode?.id}
             node={selectedNode}
             edges={data.edges}
             repoId={data.id}
@@ -336,6 +337,7 @@ export default function DashboardPage({ data, onReset }) {
             selectedNode={selectedNode}
           />
           <NodeDetail
+            key={selectedNode?.id}
             node={selectedNode}
             edges={data.edges}
             repoId={data.id}
