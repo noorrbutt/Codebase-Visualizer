@@ -84,8 +84,8 @@ function LoadingPage({ repoName, status }) {
   const steps = [
     { label: "Fetching repository tree", done: true },
     { label: "Reading source files", done: status !== "queued" },
-    { label: "Parsing dependencies", done: status === "ready" || status === "failed" },
-    { label: "Generating AI summary", done: status === "ready" },
+    { label: "Parsing dependencies", done: status === "summarized" || status === "ready" },
+    { label: "Generating AI summary", done: status === "summarized" || status === "ready" },
   ];
 
   return (

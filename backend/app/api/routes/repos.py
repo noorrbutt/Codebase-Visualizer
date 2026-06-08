@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import time
 from pathlib import Path, PurePosixPath
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
@@ -125,7 +126,7 @@ def _build_repo_summary(repo_id: int, repo_name: str, file_paths: list[str]) -> 
             return
 
         repo.summary = summary
-        repo.status = "ready"
+        repo.status = "summarized"
         db.commit()
         logger.info("Repo summary saved for repo %s", repo_id)
     except Exception as exc:
@@ -166,7 +167,19 @@ def _build_repo_file_analysis(repo_id: int, file_contents: dict[str, str]) -> No
             node.ai_role = analysis["role"]
             node.analyzed_at = datetime.utcnow()
 
+            # Throttle requests to avoid hitting Groq rate limits
+            time.sleep(1.5)
+
         db.commit()
+        # Mark repository as ready after file analysis completes
+        try:
+            repo = db.get(Repository, repo_id)
+            if repo:
+                repo.status = "ready"
+                db.commit()
+        except Exception as exc:
+            db.rollback()
+            logger.error("Failed to set repo ready status for repo %s: %s", repo_id, exc)
         logger.info("File AI analysis saved for repo %s", repo_id)
     except Exception as exc:
         db.rollback()

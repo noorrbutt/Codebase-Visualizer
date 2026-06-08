@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from typing import Any, Dict, List
 
 from groq import Groq
@@ -59,26 +60,34 @@ class AIService:
         )
 
         logger.info("Sending file analysis prompt to Groq for %s", file_path)
-        try:
-            response = self.client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=150,
-                temperature=0.5,
-            )
-            raw_text = response.choices[0].message.content.strip()
-            self._log_usage(response, "file analysis")
-            parsed = json.loads(raw_text)
 
-            if not all(key in parsed for key in ("summary", "complexity", "role")):
-                raise AIServiceError("Groq response JSON is missing required keys")
+        # Retry on rate limit errors (strings containing 'rate_limit' or '429')
+        for attempt in range(3):
+            try:
+                response = self.client.chat.completions.create(
+                    model="llama-3.3-70b-versatile",
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=150,
+                    temperature=0.5,
+                )
+                raw_text = response.choices[0].message.content.strip()
+                self._log_usage(response, "file analysis")
+                parsed = json.loads(raw_text)
 
-            return {
-                "summary": str(parsed["summary"]),
-                "complexity": str(parsed["complexity"]),
-                "role": str(parsed["role"]),
-            }
-        except json.JSONDecodeError as exc:
-            raise AIServiceError(f"Invalid JSON returned from AI: {exc}") from exc
-        except Exception as exc:
-            raise AIServiceError(str(exc)) from exc
+                if not all(key in parsed for key in ("summary", "complexity", "role")):
+                    raise AIServiceError("Groq response JSON is missing required keys")
+
+                return {
+                    "summary": str(parsed["summary"]),
+                    "complexity": str(parsed["complexity"]),
+                    "role": str(parsed["role"]),
+                }
+            except json.JSONDecodeError as exc:
+                raise AIServiceError(f"Invalid JSON returned from AI: {exc}") from exc
+            except Exception as exc:
+                msg = str(exc).lower()
+                if ("rate_limit" in msg or "429" in msg) and attempt < 2:
+                    logger.warning("Groq rate limit encountered for %s (attempt %s). Retrying after delay.", file_path, attempt + 1)
+                    time.sleep(10)
+                    continue
+                raise AIServiceError(str(exc)) from exc
