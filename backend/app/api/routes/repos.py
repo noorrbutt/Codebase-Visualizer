@@ -149,7 +149,6 @@ def _build_repo_file_analysis(repo_id: int, file_contents: dict[str, str]) -> No
 
         for file_path, content in file_contents.items():
             try:
-                # Space out file analysis calls to stay within Groq token rate limits
                 time.sleep(5)
                 analysis = ai_service.analyze_file(file_path, content)
             except Exception as exc:
