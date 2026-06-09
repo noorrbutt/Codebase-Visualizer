@@ -176,7 +176,9 @@ export default function App() {
   useEffect(() => {
     if (data && view === "loading") {
       const timer = setTimeout(() => {
-        if (view === "loading") { clearInterval(pollRef.current); setLoading(false); setView("dashboard"); }
+        clearInterval(pollRef.current);
+        setLoading(false);
+        setView("dashboard");
       }, 90000);
       return () => clearTimeout(timer);
     }

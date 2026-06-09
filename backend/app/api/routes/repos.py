@@ -189,6 +189,7 @@ def _build_repo_file_analysis(repo_id: int, file_contents: dict[str, str]) -> No
 
 
 @router.post("/analyze", response_model=AnalyzeResponse)
+# TODO: convert to async with httpx and background task queue for large repos
 def analyze_repo(
     request: AnalyzeRequest,
     background_tasks: BackgroundTasks,
