@@ -47,47 +47,61 @@ class AIService:
         except Exception as exc:
             raise AIServiceError(str(exc)) from exc
 
+    def _call_analyze_file(self, file_path: str, snippet: str) -> Dict[str, str]:
+        response = self.client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": (
+                "Analyze the following source file and return ONLY a JSON object with exactly these keys: "
+                "summary, complexity, role. "
+                "summary: 1-2 sentences. "
+                "complexity: one of low/medium/high. "
+                "role: one of entry_point/api_router/data_model/service/utility/config/test/static/unknown. "
+                "Return nothing else — no markdown, no explanation, just the JSON object. "
+                f"File: {file_path}. Content:\n{snippet}"
+            )}],
+            max_tokens=300,
+            temperature=0.3,
+        )
+        raw_text = response.choices[0].message.content.strip()
+        self._log_usage(response, "file analysis")
+
+        if not raw_text.startswith("{"):
+            raise Exception("rate_limit: " + raw_text[:120])
+
+        parsed = json.loads(raw_text)
+
+        if not all(key in parsed for key in ("summary", "complexity", "role")):
+            raise Exception("missing_keys: " + str(list(parsed.keys())))
+
+        return {
+            "summary": str(parsed["summary"]),
+            "complexity": str(parsed["complexity"]),
+            "role": str(parsed["role"]),
+        }
+
     def analyze_file(self, file_path: str, content: str) -> Dict[str, str]:
         if not self.client:
             raise AIServiceError("GROQ_API_KEY not configured")
 
         snippet = "\n".join(content.splitlines()[:200])
-        prompt = (
-            "Analyze the following source file and return only a JSON object with keys: summary, complexity, role. "
-            "summary should be 1-2 sentences, complexity should be one of low/medium/high, role should be one of: "
-            "entry_point, api_router, data_model, service, utility, config, test, static, unknown. "
-            f"File: {file_path}. Content:\n{snippet}"
-        )
+        wait_times = [20, 60]
+        last_exc: Exception = Exception("unknown error")
 
         logger.info("Sending file analysis prompt to Groq for %s", file_path)
 
-        # Retry on rate limit errors (strings containing 'rate_limit' or '429')
         for attempt in range(3):
             try:
-                response = self.client.chat.completions.create(
-                    model="llama-3.3-70b-versatile",
-                    messages=[{"role": "user", "content": prompt}],
-                    max_tokens=150,
-                    temperature=0.5,
-                )
-                raw_text = response.choices[0].message.content.strip()
-                self._log_usage(response, "file analysis")
-                parsed = json.loads(raw_text)
-
-                if not all(key in parsed for key in ("summary", "complexity", "role")):
-                    raise AIServiceError("Groq response JSON is missing required keys")
-
-                return {
-                    "summary": str(parsed["summary"]),
-                    "complexity": str(parsed["complexity"]),
-                    "role": str(parsed["role"]),
-                }
-            except json.JSONDecodeError as exc:
-                raise AIServiceError(f"Invalid JSON returned from AI: {exc}") from exc
+                return self._call_analyze_file(file_path, snippet)
             except Exception as exc:
-                msg = str(exc).lower()
-                if ("rate_limit" in msg or "429" in msg) and attempt < 2:
-                    logger.warning("Groq rate limit encountered for %s (attempt %s). Retrying after delay.", file_path, attempt + 1)
-                    time.sleep(10)
-                    continue
-                raise AIServiceError(str(exc)) from exc
+                last_exc = exc
+                err = str(exc).lower()
+                is_rate_limit = "429" in err or "rate_limit" in err or "rate limit" in err
+
+                if not is_rate_limit or attempt == 2:
+                    raise AIServiceError(str(exc)) from exc
+
+                wait = wait_times[attempt]
+                logger.warning("Groq rate limit hit for %s, waiting %ss before retry", file_path, wait)
+                time.sleep(wait)
+
+        raise AIServiceError(str(last_exc))
