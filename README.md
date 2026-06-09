@@ -81,5 +81,3 @@ npm run dev
 - Only public GitHub repositories are supported. Private repositories are not supported by this demo.
 - AI requests are throttled and performed in background tasks — analysis of large repositories will take time and may be subject to rate limits.
 - This repository intentionally does not implement authentication, onboarding flows, or team/collaboration features.
-
-If you want me to add instructions for deploying this project (Docker, managed DB, secrets management), I can add a deployment section next.
