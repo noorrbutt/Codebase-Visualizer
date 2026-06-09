@@ -22,7 +22,7 @@ from app.logging import get_logger
 logger = get_logger(__name__)
 
 @asynccontextmanager
-def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI): 
     create_tables()
     logger.info("Database tables ready")
     yield
