@@ -21,18 +21,16 @@ export function useForceGraph(nodes, edges, canvasRef, selectedNode, onSelectNod
     ctx.save();
     ctx.translate(x, y);
     ctx.scale(scale, scale);
-    ctx.fillStyle = "#F8F9FA";
-    ctx.fillRect(0, 0, w, h);
 
     const nodeMap = {};
-    simRef.current.forEach((n) => { nodeMap[n.id] = n; });
+    simRef.current.forEach((n) => { nodeMap[n.path] = n; });
 
     const highlightedNodeIds = new Set();
     if (selectedNode) {
-      highlightedNodeIds.add(selectedNode.id);
+      highlightedNodeIds.add(selectedNode.path);
       edges.forEach((e) => {
-        if (e.source === selectedNode.id || e.source === selectedNode.path) highlightedNodeIds.add(e.target);
-        if (e.target === selectedNode.id || e.target === selectedNode.path) highlightedNodeIds.add(e.source);
+        if (e.source === selectedNode.path) highlightedNodeIds.add(e.target);
+        if (e.target === selectedNode.path) highlightedNodeIds.add(e.source);
       });
     }
 
@@ -43,8 +41,7 @@ export function useForceGraph(nodes, edges, canvasRef, selectedNode, onSelectNod
       if (!s || !t) return;
       const isHighlighted =
         selectedNode &&
-        (e.source === selectedNode.id || e.source === selectedNode.path ||
-          e.target === selectedNode.id || e.target === selectedNode.path);
+        (e.source === selectedNode.path || e.target === selectedNode.path);
       ctx.beginPath();
       ctx.moveTo(s.x, s.y);
       ctx.lineTo(t.x, t.y);
@@ -55,9 +52,9 @@ export function useForceGraph(nodes, edges, canvasRef, selectedNode, onSelectNod
 
     // Draw nodes
     simRef.current.forEach((n) => {
-      const isSelected = selectedNode?.id === n.id;
-      const isHovered = hoveredRef.current === n.id;
-      const isConnected = highlightedNodeIds.has(n.id) || highlightedNodeIds.has(n.path);
+      const isSelected = selectedNode?.path === n.path;
+      const isHovered = hoveredRef.current === n.path;
+      const isConnected = highlightedNodeIds.has(n.path);
       const isDimmed = selectedNode && !isSelected && !isConnected;
       const r = Math.max(5, Math.min(13, 5 + (n.import_count || 0) * 1.4));
 
@@ -104,7 +101,7 @@ export function useForceGraph(nodes, edges, canvasRef, selectedNode, onSelectNod
     }));
     simRef.current = sim;
     const nodeMap = {};
-    sim.forEach((n) => { nodeMap[n.id] = n; });
+    sim.forEach((n) => { nodeMap[n.path] = n; });
 
     let tick = 0;
     const step = () => {
@@ -205,7 +202,7 @@ export function useForceGraph(nodes, edges, canvasRef, selectedNode, onSelectNod
       const canvas = canvasRef.current;
       if (canvas) canvas.style.cursor = node ? "pointer" : "grab";
       const prev = hoveredRef.current;
-      hoveredRef.current = node?.id || null;
+      hoveredRef.current = node?.path || null;
       if (prev !== hoveredRef.current) draw();
     }
   }, [canvasRef, draw, getNode]);

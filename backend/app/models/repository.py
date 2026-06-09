@@ -18,9 +18,3 @@ class Repository(Base):
     status = Column(String, nullable=False, default="parsing")
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
     updated_at = Column(DateTime, onupdate=func.now(), nullable=True)
-
-    def __repr__(self) -> str:
-        return (
-            f"<Repository(id={self.id}, owner={self.owner}, repo_name={self.repo_name}, "
-            f"status={self.status}, total_files={self.total_files})>"
-        )

@@ -14,8 +14,8 @@ export default function GraphView({ nodes, edges, selectedNode, onSelectNode }) 
     ? edges
     : edges.filter(
         (e) =>
-          filteredNodes.find((n) => n.id === e.source || n.path === e.source) &&
-          filteredNodes.find((n) => n.id === e.target || n.path === e.target)
+          filteredNodes.find((n) => n.path === e.source) &&
+          filteredNodes.find((n) => n.path === e.target)
       );
 
   const { onMouseDown, onMouseMove, onMouseUp, onWheel, onClick } = useForceGraph(

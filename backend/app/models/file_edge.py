@@ -15,6 +15,3 @@ class FileEdge(Base):
     target = Column(String, nullable=False)
 
     repository = relationship("Repository", backref="edges")
-
-    def __repr__(self) -> str:
-        return f"<FileEdge(id={self.id}, repo_id={self.repo_id}, source={self.source}, target={self.target})>"

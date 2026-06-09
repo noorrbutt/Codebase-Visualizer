@@ -22,9 +22,3 @@ class FileNode(Base):
     analyzed_at = Column(DateTime, nullable=True)
 
     repository = relationship("Repository", backref="file_nodes")
-
-    def __repr__(self) -> str:
-        return (
-            f"<FileNode(id={self.id}, repo_id={self.repo_id}, file_path={self.file_path}, "
-            f"language={self.language}, import_count={self.import_count})>"
-        )
