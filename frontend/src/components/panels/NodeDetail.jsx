@@ -86,17 +86,34 @@ export default function NodeDetail({ node, edges, repoId, repoOwner, repoName, r
     }
   }
 
+  async function delay(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
   async function fetchAnalysis() {
     if (analysis !== null || node.ai_summary) return;
     setLoadingAnalysis(true);
     setAnalysisError(null);
-    try {
-      const res = await fetch(`${API}/files/analyze`, {
+
+    const doFetch = async () => {
+      return fetch(`${API}/files/analyze`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ repo_id: repoId, file_path: node.path }),
       });
-      if (!res.ok) throw new Error("Analysis failed");
+    };
+
+    try {
+      let res = await doFetch();
+      if (res.status === 503) {
+        await delay(4000);
+        res = await doFetch();
+      }
+
+      if (!res.ok) {
+        throw new Error("Analysis failed");
+      }
+
       const data = await res.json();
       setAnalysis(data);
     } catch {

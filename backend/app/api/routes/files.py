@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.exceptions import RepoNotFoundError
+from app.exceptions import AIServiceError, RepoNotFoundError
 from app.logging import get_logger
 from app.models.file_node import FileNode
 from app.models.repository import Repository
@@ -44,7 +44,14 @@ def analyze_file(request: FileAnalyzeRequest, db: Session = Depends(get_db)) -> 
         raise HTTPException(status_code=404, detail="Repository not found")
 
     content = github_service.get_file_content(repo.owner, repo.repo_name, repo.default_branch, node.file_path)
-    analysis = ai_service.analyze_file(node.file_path, content)
+    try:
+        analysis = ai_service.analyze_file(node.file_path, content)
+    except AIServiceError as exc:
+        logger.warning("AI analysis unavailable for %s/%s: %s", repo.github_url, node.file_path, exc)
+        raise HTTPException(
+            status_code=503,
+            detail="AI analysis temporarily unavailable. Try again in a few seconds.",
+        )
 
     try:
         node.ai_summary = analysis["summary"]
