@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 const BARS = [
   { key: "low",     label: "Low",  color: "#10B981" },
@@ -7,16 +7,46 @@ const BARS = [
   { key: "unknown", label: "N/A",  color: "#E5E7EB" },
 ];
 
-export default function ComplexityChart({ nodes }) {
+export default function ComplexityChart({ nodes, repoId }) {
+  const [polledNodes, setPolledNodes] = useState(nodes);
+
+  const displayNodes = useMemo(() => {
+    const hasUnanalyzed = nodes.some((n) => n.ai_complexity === null);
+    return hasUnanalyzed ? polledNodes : nodes;
+  }, [nodes, polledNodes]);
+
+  useEffect(() => {
+    if (!repoId) return;
+
+    const hasUnanalyzed = nodes.some((n) => n.ai_complexity === null);
+    if (!hasUnanalyzed) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const response = await fetch(`/api/repos/${repoId}`);
+        if (!response.ok) return;
+        const data = await response.json();
+        if (data.status === "ready") {
+          setPolledNodes(data.nodes);
+          clearInterval(interval);
+        }
+      } catch (err) {
+        console.error("Failed to poll repo status:", err);
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [repoId, nodes]);
+
   const counts = useMemo(() => {
     const c = { low: 0, medium: 0, high: 0, unknown: 0 };
-    nodes.forEach((n) => {
+    displayNodes.forEach((n) => {
       const k = n.ai_complexity?.toLowerCase();
       if (k === "low" || k === "medium" || k === "high") c[k]++;
       else c.unknown++;
     });
     return c;
-  }, [nodes]);
+  }, [displayNodes]);
 
   const max = Math.max(...BARS.map((b) => counts[b.key]), 1);
   const BAR_H = 120;

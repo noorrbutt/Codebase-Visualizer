@@ -74,7 +74,7 @@ function ChartCard({ title, children }) {
         style={{
           fontFamily: "'DM Sans', sans-serif",
           fontSize: 11,
-          color: "#9CA3AF",
+          color: "var(--subtle)",
           margin: 0,
           letterSpacing: "0.05em",
           textTransform: "uppercase",
@@ -286,7 +286,7 @@ export default function DashboardPage({ data, onReset }) {
               <LangDonut nodes={data.nodes} />
             </ChartCard>
             <ChartCard title="Complexity">
-              <ComplexityChart nodes={data.nodes} />
+              <ComplexityChart nodes={data.nodes} repoId={data.id} />
             </ChartCard>
             <ChartCard title="Connections distribution">
               <ConnectionsChart nodes={data.nodes} edges={data.edges} />
@@ -299,7 +299,7 @@ export default function DashboardPage({ data, onReset }) {
               <TopFiles nodes={data.nodes} edges={data.edges} />
             </ChartCard>
             <ChartCard title="File roles">
-              <FileRoles nodes={data.nodes} />
+              <FileRoles nodes={data.nodes} repoId={data.id} />
             </ChartCard>
           </div>
         </div>

@@ -30,10 +30,13 @@ export default function ConnectionsChart({ nodes, edges }) {
           const y = BAR_H - filledH;
           const x = i * (BAR_W + GAP) + 4;
           const alpha = 0.35 + 0.65 * (i / 7);
+          const rangeStart = Math.round((i / 8) * maxConn);
+          const rangeEnd = Math.round(((i + 1) / 8) * maxConn);
+          const binLabel = `${rangeStart}–${rangeEnd} connections (${cnt} ${cnt === 1 ? "file" : "files"})`;
 
           return (
             <g key={i}>
-              <rect x={x} y={0} width={BAR_W} height={BAR_H} rx={3} fill="#F3F4F6" />
+              <rect x={x} y={0} width={BAR_W} height={BAR_H} rx={3} fill="#F3F4F6" title={binLabel} />
               <rect
                 x={x}
                 y={y}
@@ -41,6 +44,7 @@ export default function ConnectionsChart({ nodes, edges }) {
                 height={filledH}
                 rx={3}
                 fill={`rgba(99,102,241,${alpha})`}
+                title={binLabel}
                 style={{
                   transition: "height 0.7s cubic-bezier(.4,0,.2,1), y 0.7s cubic-bezier(.4,0,.2,1)",
                 }}

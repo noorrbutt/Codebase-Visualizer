@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 const ROLE_COLOR = {
   entry_point: "#6366F1",
@@ -12,15 +12,45 @@ const ROLE_COLOR = {
   unknown: "#E5E7EB",
 };
 
-export default function FileRoles({ nodes }) {
+export default function FileRoles({ nodes, repoId }) {
+  const [polledNodes, setPolledNodes] = useState(nodes);
+
+  const displayNodes = useMemo(() => {
+    const hasUnanalyzed = nodes.some((n) => n.ai_role === null);
+    return hasUnanalyzed ? polledNodes : nodes;
+  }, [nodes, polledNodes]);
+
+  useEffect(() => {
+    if (!repoId) return;
+
+    const hasUnanalyzed = nodes.some((n) => n.ai_role === null);
+    if (!hasUnanalyzed) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const response = await fetch(`/api/repos/${repoId}`);
+        if (!response.ok) return;
+        const data = await response.json();
+        if (data.status === "ready") {
+          setPolledNodes(data.nodes);
+          clearInterval(interval);
+        }
+      } catch (err) {
+        console.error("Failed to poll repo status:", err);
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [repoId, nodes]);
+
   const entries = useMemo(() => {
     const roles = {};
-    nodes.forEach((n) => {
+    displayNodes.forEach((n) => {
       if (!n.ai_role) return;
       roles[n.ai_role] = (roles[n.ai_role] || 0) + 1;
     });
     return Object.entries(roles).sort((a, b) => b[1] - a[1]).slice(0, 8);
-  }, [nodes]);
+  }, [displayNodes]);
 
   if (!entries.length) {
     return (
