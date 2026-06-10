@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Dict, Generator, List, Tuple
 from urllib.parse import urlparse
 
 import requests

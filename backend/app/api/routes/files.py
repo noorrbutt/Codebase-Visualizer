@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.exceptions import AIServiceError, RepoNotFoundError
+from app.exceptions import AIServiceError
 from app.logging import get_logger
 from app.models.file_node import FileNode
 from app.models.repository import Repository
