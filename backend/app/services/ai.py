@@ -17,11 +17,6 @@ class AIService:
     def __init__(self) -> None:
         self.client = Groq(api_key=settings.GROQ_API_KEY) if settings.GROQ_API_KEY else None
 
-    def _log_usage(self, response: Any, action: str) -> None:
-        usage = getattr(response, "usage", None)
-        if usage is not None:
-            logger.info("AI %s usage: %s", action, usage)
-
     def generate_repo_summary(self, repo_name: str, file_list: List[str]) -> str:
         if not self.client:
             raise AIServiceError("GROQ_API_KEY not configured")
@@ -42,7 +37,9 @@ class AIService:
                 temperature=0.7,
             )
             summary = response.choices[0].message.content.strip()
-            self._log_usage(response, "repo summary")
+            usage = getattr(response, "usage", None)
+            if usage is not None:
+                logger.info("AI repo summary usage: %s", usage)
             return summary
         except Exception as exc:
             raise AIServiceError(str(exc)) from exc
@@ -63,7 +60,9 @@ class AIService:
             temperature=0.3,
         )
         raw_text = response.choices[0].message.content.strip()
-        self._log_usage(response, "file analysis")
+        usage = getattr(response, "usage", None)
+        if usage is not None:
+            logger.info("AI file analysis usage: %s", usage)
 
         if not raw_text.startswith("{"):
             raise Exception("rate_limit: " + raw_text[:120])

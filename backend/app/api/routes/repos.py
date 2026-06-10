@@ -149,9 +149,7 @@ def _build_repo_file_analysis(repo_id: int, file_contents: dict[str, str]) -> No
 
         for file_path, content in file_contents.items():
             try:
-                # TODO: replace the fixed sleep with async batching/rate-limited requests;
-                # this is fine for local SQLite/dev but is not suitable for a real DB-backed worker.
-                # Rate-limited sleep before API call to avoid overwhelming AI service
+                # Local dev throttling to avoid overwhelming Groq on consecutive file analysis requests.
                 time.sleep(5)
                 analysis = ai_service.analyze_file(file_path, content)
             except Exception as exc:
@@ -171,9 +169,7 @@ def _build_repo_file_analysis(repo_id: int, file_contents: dict[str, str]) -> No
             node.ai_role = analysis["role"]
             node.analyzed_at = datetime.utcnow()
 
-            # TODO: keep the throttle for local/dev only; real deployments should use
-            # an async queue or a token-bucket rate limiter instead of fixed sleeps.
-            # Database write throttle to avoid connection pool contention
+            # Local dev delay to reduce transient contention while writing many file analysis records.
             time.sleep(1.5)
 
         db.commit()
@@ -195,7 +191,6 @@ def _build_repo_file_analysis(repo_id: int, file_contents: dict[str, str]) -> No
 
 
 @router.post("/analyze", response_model=AnalyzeResponse)
-# TODO: convert to async with httpx and background task queue for large repos
 def analyze_repo(
     request: AnalyzeRequest,
     background_tasks: BackgroundTasks,
