@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-import time
+import asyncio
 from pathlib import Path, PurePosixPath
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
@@ -117,10 +117,10 @@ def _normalize_file_records(file_nodes: list[FileNode]) -> list[FileNodeOut]:
     ]
 
 
-def _build_repo_summary(repo_id: int, repo_name: str, file_paths: list[str]) -> None:
+async def _build_repo_summary(repo_id: int, repo_name: str, file_paths: list[str]) -> None:
     db = SessionLocal()
     try:
-        summary = ai_service.generate_repo_summary(repo_name, file_paths)
+        summary = await asyncio.to_thread(ai_service.generate_repo_summary, repo_name, file_paths)
         repo = db.get(Repository, repo_id)
         if repo is None:
             return
@@ -140,7 +140,7 @@ def _build_repo_summary(repo_id: int, repo_name: str, file_paths: list[str]) -> 
         db.close()
 
 
-def _build_repo_file_analysis(repo_id: int, file_contents: dict[str, str]) -> None:
+async def _build_repo_file_analysis(repo_id: int, file_contents: dict[str, str]) -> None:
     db = SessionLocal()
     try:
         repo = db.get(Repository, repo_id)
@@ -150,8 +150,8 @@ def _build_repo_file_analysis(repo_id: int, file_contents: dict[str, str]) -> No
         for file_path, content in file_contents.items():
             try:
                 # Local dev throttling to avoid overwhelming Groq on consecutive file analysis requests.
-                time.sleep(5)
-                analysis = ai_service.analyze_file(file_path, content)
+                await asyncio.sleep(5)
+                analysis = await asyncio.to_thread(ai_service.analyze_file, file_path, content)
             except Exception as exc:
                 logger.error("File analysis failed for %s/%s: %s", repo.github_url, file_path, exc)
                 continue
@@ -170,7 +170,7 @@ def _build_repo_file_analysis(repo_id: int, file_contents: dict[str, str]) -> No
             node.analyzed_at = datetime.utcnow()
 
             # Local dev delay to reduce transient contention while writing many file analysis records.
-            time.sleep(1.5)
+            await asyncio.sleep(1.5)
 
         db.commit()
         # Mark repository as ready after file analysis completes
@@ -259,7 +259,7 @@ def analyze_repo(
     background_tasks.add_task(_build_repo_summary, repo.id, repo_name, file_paths)
     background_tasks.add_task(_build_repo_file_analysis, repo.id, contents)
 
-    return AnalyzeResponse(
+    response = AnalyzeResponse(
         id=repo.id,
         repo_name=repo.repo_name,
         owner=repo.owner,
@@ -269,6 +269,15 @@ def analyze_repo(
         nodes=_normalize_file_records(node_records),
         edges=edges,
     )
+    return response
+
+
+@router.get("/{repo_id}/status")
+def get_repo_status(repo_id: int, db: Session = Depends(get_db)) -> dict[str, str]:
+    repo = db.query(Repository).filter(Repository.id == repo_id).first()
+    if repo is None:
+        raise HTTPException(status_code=404, detail="Repository not found")
+    return {"status": repo.status}
 
 
 @router.get("/", response_model=list[RepoListItem])

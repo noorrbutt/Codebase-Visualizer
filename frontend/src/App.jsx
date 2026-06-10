@@ -145,6 +145,7 @@ export default function App() {
       if (!res.ok) throw new Error("Analysis failed");
       const json = await res.json();
       setData(json);
+      setPollStatus(json.status);
       startPolling(json.id);
     } catch {
       // fetch or parse error — show message and return to home
@@ -154,23 +155,34 @@ export default function App() {
     }
   };
 
+  const fetchRepo = async (id) => {
+    try {
+      const res = await fetch(`${API}/repos/${id}`);
+      if (!res.ok) throw new Error("Could not load repository");
+      const json = await res.json();
+      setData(json);
+      setPollStatus(json.status);
+      setLoading(false);
+      setView("dashboard");
+    } catch {
+      setLoading(false);
+      setView("home");
+      setAnalysisError("Failed to load repository after analysis completed.");
+    }
+  };
+
   const startPolling = (id) => {
     clearInterval(pollRef.current);
     pollRef.current = setInterval(async () => {
       try {
-        const res = await fetch(`${API}/repos/${id}`);
+        const res = await fetch(`${API}/repos/${id}/status`);
+        if (!res.ok) throw new Error("Status request failed");
         const json = await res.json();
         setPollStatus(json.status);
-        setData((prev) => ({
-          ...(prev ?? {}),
-          ...json,
-          status: json.status,
-          summary: json.summary ?? prev?.summary,
-          nodes: json.nodes ?? prev?.nodes ?? [],
-          edges: json.edges ?? prev?.edges ?? [],
-          default_branch: json.default_branch ?? prev?.default_branch,
-        }));
-        if (json.status === "ready" || json.status === "failed") {
+        if (json.status === "ready") {
+          clearInterval(pollRef.current);
+          await fetchRepo(id);
+        } else if (json.status === "failed") {
           clearInterval(pollRef.current);
           setLoading(false);
           setView("dashboard");
