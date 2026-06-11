@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict
 class FileAnalyzeRequest(BaseModel):
     repo_id: int
     file_path: str
-    model_config = ConfigDict()
+
 
 
 class FileAnalyzeResponse(BaseModel):

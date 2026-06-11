@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, HttpUrl
 
 class AnalyzeRequest(BaseModel):
     github_url: HttpUrl
-    model_config = ConfigDict()
+
 
 
 class FileEdge(BaseModel):
