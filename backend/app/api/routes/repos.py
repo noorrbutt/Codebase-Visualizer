@@ -140,56 +140,6 @@ async def _build_repo_summary(repo_id: int, repo_name: str, file_paths: list[str
         db.close()
 
 
-async def _build_repo_file_analysis(repo_id: int, file_contents: dict[str, str]) -> None:
-    db = SessionLocal()
-    try:
-        repo = db.get(Repository, repo_id)
-        if repo is None:
-            return
-
-        for file_path, content in file_contents.items():
-            try:
-                # Local dev throttling to avoid overwhelming Groq on consecutive file analysis requests.
-                await asyncio.sleep(5)
-                analysis = await asyncio.to_thread(ai_service.analyze_file, file_path, content)
-            except Exception as exc:
-                logger.error("File analysis failed for %s/%s: %s", repo.github_url, file_path, exc)
-                continue
-
-            node = (
-                db.query(FileNode)
-                .filter(FileNode.repo_id == repo_id, FileNode.file_path == file_path)
-                .first()
-            )
-            if node is None:
-                continue
-
-            node.ai_summary = analysis["summary"]
-            node.ai_complexity = analysis["complexity"]
-            node.ai_role = analysis["role"]
-            node.analyzed_at = datetime.utcnow()
-
-            # Local dev delay to reduce transient contention while writing many file analysis records.
-            await asyncio.sleep(1.5)
-
-        db.commit()
-        # Mark repository as ready after file analysis completes
-        try:
-            repo = db.get(Repository, repo_id)
-            if repo:
-                repo.status = "ready"
-                db.commit()
-        except Exception as exc:
-            db.rollback()
-            logger.error("Failed to set repo ready status for repo %s: %s", repo_id, exc)
-        logger.info("File AI analysis saved for repo %s", repo_id)
-    except Exception as exc:
-        db.rollback()
-        logger.error("Repo file analysis background task failed for repo %s: %s", repo_id, exc)
-    finally:
-        db.close()
-
-
 @router.post("/analyze", response_model=AnalyzeResponse)
 def analyze_repo(
     request: AnalyzeRequest,
@@ -257,7 +207,6 @@ def analyze_repo(
         raise HTTPException(status_code=500, detail="Failed to persist repository data")
 
     background_tasks.add_task(_build_repo_summary, repo.id, repo_name, file_paths)
-    background_tasks.add_task(_build_repo_file_analysis, repo.id, contents)
 
     response = AnalyzeResponse(
         id=repo.id,
