@@ -112,7 +112,7 @@ class GithubService:
 
     def fetch_files_concurrent(self, owner: str, repo: str, branch: str, paths: list[str]) -> dict[str, str]:
         contents: dict[str, str] = {}
-        logger.info("Fetching {count} files concurrently", count=len(paths))
+        logger.info("Fetching %s files concurrently", len(paths))
 
         with ThreadPoolExecutor(max_workers=10) as executor:
             futures = {executor.submit(self.get_file_content, owner, repo, branch, path): path for path in paths}

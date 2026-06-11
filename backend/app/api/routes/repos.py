@@ -126,7 +126,7 @@ async def _build_repo_summary(repo_id: int, repo_name: str, file_paths: list[str
             return
 
         repo.summary = summary
-        repo.status = "summarized"
+        repo.status = "ready"
         db.commit()
         logger.info("Repo summary saved for repo %s", repo_id)
     except Exception as exc:

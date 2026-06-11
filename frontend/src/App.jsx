@@ -142,16 +142,20 @@ export default function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ github_url: url }),
       });
-      if (!res.ok) throw new Error("Analysis failed");
+      if (!res.ok) {
+        const errorBody = await res.json().catch(() => null);
+        const detail = errorBody?.detail || errorBody?.message || res.statusText || "Analysis failed";
+        throw new Error(detail);
+      }
       const json = await res.json();
       setData(json);
       setPollStatus(json.status);
       startPolling(json.id);
-    } catch {
-      // fetch or parse error — show message and return to home
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not connect to the backend.";
       setLoading(false);
       setView("home");
-      setAnalysisError("Could not connect to the backend. Make sure it's running on port 8000.");
+      setAnalysisError(`Could not connect to the backend. ${message}`);
     }
   };
 
