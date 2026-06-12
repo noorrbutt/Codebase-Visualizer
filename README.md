@@ -73,8 +73,7 @@ npm run dev
 |------|----------|-------------|
 | `GROQ_API_KEY` | Yes | API key for the Groq LLM used for file and repo analysis. Without this the AI features will fail. |
 | `GITHUB_TOKEN` | No | Optional GitHub Personal Access Token — increases API rate limits when fetching repository trees and files. |
-| `DATABASE_URL` | No | Database connection string. Defaults to a local SQLite file when not provided. |
-| `VITE_API_URL` | No (frontend) | URL the frontend uses to reach the backend API. Defaults to `http://localhost:8000`.
+| `DATABASE_URL` | No | Database connection string. Defaults to a local SQLite file when not provided. 
 
 ## Limitations & Notes
 
