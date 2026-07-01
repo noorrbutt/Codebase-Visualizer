@@ -13,6 +13,8 @@ from app.logging import get_logger
 
 logger = get_logger(__name__)
 
+GROQ_MODEL = "openai/gpt-oss-120b"
+
 
 class AIService:
     def __init__(self, hourly_limit: int | None = None, daily_limit: int | None = None) -> None:
@@ -51,7 +53,7 @@ class AIService:
         logger.info("Sending repo summary prompt to Groq for %s", repo_name)
         try:
             response = self.client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
+                model=GROQ_MODEL,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=200,
                 temperature=0.7,
@@ -66,7 +68,7 @@ class AIService:
 
     def _call_analyze_file(self, file_path: str, snippet: str) -> Dict[str, str]:
         response = self.client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model=GROQ_MODEL,
             messages=[{"role": "user", "content": (
                 "Analyze the following source file and return ONLY a JSON object with exactly these keys: "
                 "summary, complexity, role. "
