@@ -25,7 +25,7 @@ file_rate_limiter = IPRateLimiter(max_requests=settings.RATE_LIMIT_REQUESTS_PER_
 
 
 @router.post("/analyze", response_model=FileAnalyzeResponse)
-def analyze_file(
+async def analyze_file(
     payload: FileAnalyzeRequest,
     db: Session = Depends(get_db),
     request: Request = None,
@@ -55,7 +55,7 @@ def analyze_file(
 
     content = github_service.get_file_content(repo.owner, repo.repo_name, repo.default_branch, node.file_path)
     try:
-        analysis = ai_service.analyze_file(node.file_path, content)
+        analysis = await ai_service.analyze_file(node.file_path, content)
     except AIServiceError as exc:
         logger.warning("AI analysis unavailable for %s/%s: %s", repo.github_url, node.file_path, exc)
         raise HTTPException(

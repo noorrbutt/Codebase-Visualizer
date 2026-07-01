@@ -1,5 +1,8 @@
+import asyncio
+
 import pytest
 
+import app.services.ai as ai_module
 from app.exceptions import AIServiceError
 from app.services.ai import AIService
 from app.services.github import GithubService
@@ -52,3 +55,25 @@ def test_ai_service_enforces_budget_limits():
 
     with pytest.raises(AIServiceError):
         service.ensure_budget_available()
+
+
+def test_ai_service_retries_with_async_sleep_and_timeout(monkeypatch):
+    service = AIService(hourly_limit=10, daily_limit=10)
+    service.client = object()
+    service.ensure_budget_available = lambda: None
+
+    slept: list[float] = []
+
+    async def fake_sleep(delay: float) -> None:
+        slept.append(delay)
+
+    def fake_call_analyze_file(*args, **kwargs):
+        raise Exception("rate_limit: 429")
+
+    monkeypatch.setattr(ai_module.asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(service, "_call_analyze_file", fake_call_analyze_file)
+
+    with pytest.raises(AIServiceError):
+        asyncio.run(service.analyze_file("foo.py", "print('hi')"))
+
+    assert slept

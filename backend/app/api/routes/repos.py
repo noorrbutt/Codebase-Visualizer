@@ -142,6 +142,65 @@ async def _build_repo_summary(repo_id: int, repo_name: str, file_paths: list[str
         db.close()
 
 
+async def _build_repo_analysis(repo_id: int, owner: str, repo_name: str, github_url: str, branch: str) -> None:
+    db = SessionLocal()
+    try:
+        logger.info("Starting background analysis for repo %s", repo_id)
+        tree_items = await asyncio.to_thread(github_service.get_file_tree, owner, repo_name, branch)
+        file_paths = [item["path"] for item in tree_items]
+        contents = await asyncio.to_thread(github_service.fetch_files_concurrent, owner, repo_name, branch, file_paths)
+
+        parsed_results: dict[str, list[str]] = {}
+        node_records: list[FileNode] = []
+
+        for path, content in contents.items():
+            result = code_parser.parse(path, content)
+            parsed_results[path] = result["imports"]
+            node_records.append(
+                FileNode(
+                    file_path=path,
+                    language=result["language"],
+                    line_count=result["line_count"],
+                    import_count=len(result["imports"]),
+                )
+            )
+
+        repo = db.get(Repository, repo_id)
+        if repo is None:
+            return
+
+        db.query(FileEdgeModel).filter(FileEdgeModel.repo_id == repo.id).delete()
+        db.query(FileNode).filter(FileNode.repo_id == repo.id).delete()
+
+        for node in node_records:
+            node.repo_id = repo.id
+            db.add(node)
+
+        edges = _build_edges(parsed_results)
+        edge_records = [FileEdgeModel(repo_id=repo.id, source=edge.source, target=edge.target) for edge in edges]
+        for edge_record in edge_records:
+            db.add(edge_record)
+
+        repo.total_files = len(node_records)
+        repo.status = "parsing"
+        db.commit()
+
+        summary = await asyncio.to_thread(ai_service.generate_repo_summary, repo_name, file_paths)
+        repo.summary = summary
+        repo.status = "ready"
+        db.commit()
+        logger.info("Background repo analysis complete for repo %s", repo_id)
+    except Exception as exc:
+        db.rollback()
+        logger.error("Background repo analysis failed for repo %s: %s", repo_id, exc)
+        repo = db.get(Repository, repo_id)
+        if repo:
+            repo.status = "failed"
+            db.commit()
+    finally:
+        db.close()
+
+
 @router.post("/analyze", response_model=AnalyzeResponse)
 def analyze_repo(
     payload: AnalyzeRequest,
@@ -155,31 +214,13 @@ def analyze_repo(
     owner, repo_name = github_service.parse_repo_url(str(payload.github_url))
     metadata = github_service.get_repo_metadata(owner, repo_name)
     branch = metadata.get("default_branch", "main")
-    tree_items = github_service.get_file_tree(owner, repo_name, branch)
-    file_paths = [item["path"] for item in tree_items]
-    contents = github_service.fetch_files_concurrent(owner, repo_name, branch, file_paths)
-
-    parsed_results: dict[str, list[str]] = {}
-    node_records: list[FileNode] = []
-
-    for path, content in contents.items():
-        result = code_parser.parse(path, content)
-        parsed_results[path] = result["imports"]
-        node_records.append(
-            FileNode(
-                file_path=path,
-                language=result["language"],
-                line_count=result["line_count"],
-                import_count=len(result["imports"]),
-            )
-        )
 
     repo = Repository(
         github_url=str(payload.github_url),
         repo_name=repo_name,
         owner=owner,
         default_branch=branch,
-        total_files=len(node_records),
+        total_files=0,
         status="parsing",
     )
 
@@ -194,25 +235,13 @@ def analyze_repo(
         db.add(repo)
         db.flush()
 
-        for node in node_records:
-            node.repo_id = repo.id
-            db.add(node)
-
-        edges = _build_edges(parsed_results)
-        edge_records = [
-            FileEdgeModel(repo_id=repo.id, source=edge.source, target=edge.target)
-            for edge in edges
-        ]
-        for edge_record in edge_records:
-            db.add(edge_record)
-
         db.commit()
     except Exception as exc:
         db.rollback()
         logger.error("Failed to save repository %s: %s", payload.github_url, exc)
         raise HTTPException(status_code=500, detail="Failed to persist repository data")
 
-    background_tasks.add_task(_build_repo_summary, repo.id, repo_name, file_paths)
+    background_tasks.add_task(_build_repo_analysis, repo.id, owner, repo_name, str(payload.github_url), branch)
 
     response = AnalyzeResponse(
         id=repo.id,
@@ -221,8 +250,8 @@ def analyze_repo(
         default_branch=repo.default_branch,
         status=repo.status,
         summary=repo.summary,
-        nodes=_normalize_file_records(node_records),
-        edges=edges,
+        nodes=[],
+        edges=[],
     )
     return response
 

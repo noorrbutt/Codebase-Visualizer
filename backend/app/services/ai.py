@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from typing import Dict, List
@@ -97,21 +98,30 @@ class AIService:
             "role": str(parsed["role"]),
         }
 
-    def analyze_file(self, file_path: str, content: str) -> Dict[str, str]:
+    async def analyze_file(self, file_path: str, content: str, timeout_seconds: float = 30.0) -> Dict[str, str]:
         if not self.client:
             raise AIServiceError("GROQ_API_KEY not configured")
 
         self.ensure_budget_available()
 
         snippet = "\n".join(content.splitlines()[:200])
-        wait_times = [20, 60]
         last_exc: Exception = Exception("unknown error")
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout_seconds
 
         logger.info("Sending file analysis prompt to Groq for %s", file_path)
 
         for attempt in range(3):
             try:
-                return self._call_analyze_file(file_path, snippet)
+                remaining = max(0.1, deadline - loop.time())
+                return await asyncio.wait_for(
+                    asyncio.to_thread(self._call_analyze_file, file_path, snippet),
+                    timeout=remaining,
+                )
+            except asyncio.TimeoutError as exc:
+                last_exc = exc
+                if deadline <= loop.time():
+                    raise AIServiceError(f"AI file analysis timed out after {timeout_seconds}s") from exc
             except Exception as exc:
                 last_exc = exc
                 err = str(exc).lower()
@@ -120,8 +130,12 @@ class AIService:
                 if not is_rate_limit or attempt == 2:
                     raise AIServiceError(str(exc)) from exc
 
-                wait = wait_times[attempt]
-                logger.warning("Groq rate limit hit for %s, waiting %ss before retry", file_path, wait)
-                time.sleep(wait)
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                raise AIServiceError(f"AI file analysis timed out after {timeout_seconds}s")
+
+            wait = min(2.0, remaining)
+            logger.warning("Groq rate limit hit for %s, waiting %.1fs before retry", file_path, wait)
+            await asyncio.sleep(wait)
 
         raise AIServiceError(str(last_exc))
