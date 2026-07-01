@@ -9,6 +9,10 @@ class Settings(BaseSettings):
     APP_ENV: str = "development"
     LOG_LEVEL: str = "INFO"
     CORS_ORIGINS: list[str] = ["http://localhost:5173", "http://localhost:3000"]
+    RATE_LIMIT_REQUESTS_PER_MINUTE: int = 20
+    MAX_REPO_FILES: int = 300
+    AI_MAX_REQUESTS_PER_HOUR: int = 60
+    AI_MAX_REQUESTS_PER_DAY: int = 200
 
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod

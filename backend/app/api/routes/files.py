@@ -2,30 +2,40 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.exceptions import AIServiceError
+from app.config import settings
 from app.logging import get_logger
 from app.models.file_node import FileNode
 from app.models.repository import Repository
 from app.schemas.file_node import FileAnalyzeRequest, FileAnalyzeResponse
 from app.services.ai import AIService
 from app.services.github import GithubService
+from app.services.rate_limit import IPRateLimiter
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/files", tags=["files"])
 
 github_service = GithubService()
 ai_service = AIService()
+file_rate_limiter = IPRateLimiter(max_requests=settings.RATE_LIMIT_REQUESTS_PER_MINUTE, window_seconds=60)
 
 
 @router.post("/analyze", response_model=FileAnalyzeResponse)
-def analyze_file(request: FileAnalyzeRequest, db: Session = Depends(get_db)) -> FileAnalyzeResponse:
+def analyze_file(
+    payload: FileAnalyzeRequest,
+    db: Session = Depends(get_db),
+    request: Request = None,
+) -> FileAnalyzeResponse:
+    client_ip = request.client.host if request and request.client else "unknown"
+    if not file_rate_limiter.allow(client_ip):
+        raise HTTPException(status_code=429, detail="Rate limit exceeded for file analysis")
     node = (
         db.query(FileNode)
-        .filter(FileNode.repo_id == request.repo_id, FileNode.file_path == request.file_path)
+        .filter(FileNode.repo_id == payload.repo_id, FileNode.file_path == payload.file_path)
         .first()
     )
     if node is None:
@@ -39,7 +49,7 @@ def analyze_file(request: FileAnalyzeRequest, db: Session = Depends(get_db)) -> 
             ai_role=node.ai_role,
         )
 
-    repo = db.query(Repository).filter(Repository.id == request.repo_id).first()
+    repo = db.query(Repository).filter(Repository.id == payload.repo_id).first()
     if repo is None:
         raise HTTPException(status_code=404, detail="Repository not found")
 

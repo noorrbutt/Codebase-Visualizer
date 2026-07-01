@@ -14,12 +14,31 @@ logger = get_logger(__name__)
 
 
 class AIService:
-    def __init__(self) -> None:
+    def __init__(self, hourly_limit: int | None = None, daily_limit: int | None = None) -> None:
         self.client = Groq(api_key=settings.GROQ_API_KEY) if settings.GROQ_API_KEY else None
+        self.hourly_limit = hourly_limit if hourly_limit is not None else settings.AI_MAX_REQUESTS_PER_HOUR
+        self.daily_limit = daily_limit if daily_limit is not None else settings.AI_MAX_REQUESTS_PER_DAY
+        self._hourly_usage: list[float] = []
+        self._daily_usage: list[float] = []
+
+    def ensure_budget_available(self) -> None:
+        now = time.time()
+        self._hourly_usage = [ts for ts in self._hourly_usage if now - ts < 3600]
+        self._daily_usage = [ts for ts in self._daily_usage if now - ts < 86400]
+
+        if len(self._hourly_usage) >= self.hourly_limit:
+            raise AIServiceError("AI request hourly budget exceeded")
+        if len(self._daily_usage) >= self.daily_limit:
+            raise AIServiceError("AI request daily budget exceeded")
+
+        self._hourly_usage.append(now)
+        self._daily_usage.append(now)
 
     def generate_repo_summary(self, repo_name: str, file_list: List[str]) -> str:
         if not self.client:
             raise AIServiceError("GROQ_API_KEY not configured")
+
+        self.ensure_budget_available()
 
         prompt = (
             "Write a 2-3 sentence plain-English summary as a senior developer explaining this repository to a teammate. "
@@ -81,6 +100,8 @@ class AIService:
     def analyze_file(self, file_path: str, content: str) -> Dict[str, str]:
         if not self.client:
             raise AIServiceError("GROQ_API_KEY not configured")
+
+        self.ensure_budget_available()
 
         snippet = "\n".join(content.splitlines()[:200])
         wait_times = [20, 60]

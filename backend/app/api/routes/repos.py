@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path, PurePosixPath
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.database import SessionLocal, get_db
@@ -14,7 +14,9 @@ from app.schemas.repository import AnalyzeResponse, AnalyzeRequest, FileEdge, Fi
 from app.services.ai import AIService
 from app.services.github import GithubService
 from app.services.parser import CodeParser
+from app.services.rate_limit import IPRateLimiter
 from app.logging import get_logger
+from app.config import settings
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/repos", tags=["repositories"])
@@ -22,6 +24,7 @@ router = APIRouter(prefix="/repos", tags=["repositories"])
 github_service = GithubService()
 code_parser = CodeParser()
 ai_service = AIService()
+repo_rate_limiter = IPRateLimiter(max_requests=settings.RATE_LIMIT_REQUESTS_PER_MINUTE, window_seconds=60)
 
 
 def _normalize_path_key(file_path: str) -> str:
@@ -141,11 +144,15 @@ async def _build_repo_summary(repo_id: int, repo_name: str, file_paths: list[str
 
 @router.post("/analyze", response_model=AnalyzeResponse)
 def analyze_repo(
-    request: AnalyzeRequest,
+    payload: AnalyzeRequest,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
+    request: Request = None,
 ) -> AnalyzeResponse:
-    owner, repo_name = github_service.parse_repo_url(str(request.github_url))
+    client_ip = request.client.host if request and request.client else "unknown"
+    if not repo_rate_limiter.allow(client_ip):
+        raise HTTPException(status_code=429, detail="Rate limit exceeded for repository analysis")
+    owner, repo_name = github_service.parse_repo_url(str(payload.github_url))
     metadata = github_service.get_repo_metadata(owner, repo_name)
     branch = metadata.get("default_branch", "main")
     tree_items = github_service.get_file_tree(owner, repo_name, branch)
@@ -168,7 +175,7 @@ def analyze_repo(
         )
 
     repo = Repository(
-        github_url=str(request.github_url),
+        github_url=str(payload.github_url),
         repo_name=repo_name,
         owner=owner,
         default_branch=branch,
@@ -177,7 +184,7 @@ def analyze_repo(
     )
 
     try:
-        existing = db.query(Repository).filter(Repository.github_url == str(request.github_url)).first()
+        existing = db.query(Repository).filter(Repository.github_url == str(payload.github_url)).first()
         if existing:
             db.query(FileEdgeModel).filter(FileEdgeModel.repo_id == existing.id).delete()
             db.query(FileNode).filter(FileNode.repo_id == existing.id).delete()
@@ -202,7 +209,7 @@ def analyze_repo(
         db.commit()
     except Exception as exc:
         db.rollback()
-        logger.error("Failed to save repository %s: %s", request.github_url, exc)
+        logger.error("Failed to save repository %s: %s", payload.github_url, exc)
         raise HTTPException(status_code=500, detail="Failed to persist repository data")
 
     background_tasks.add_task(_build_repo_summary, repo.id, repo_name, file_paths)

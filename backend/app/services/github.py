@@ -17,6 +17,7 @@ from app.logging import get_logger
 logger = get_logger(__name__)
 SUPPORTED_EXTENSIONS = {".py", ".js", ".jsx", ".ts", ".tsx", ".html", ".css", ".md"}
 MAX_FILE_SIZE_BYTES = 102_400
+DEFAULT_MAX_REPO_FILES = 300
 
 
 class GithubService:
@@ -101,7 +102,10 @@ class GithubService:
             filtered.append(item)
 
         logger.info("Filtered GitHub tree to %s supported files", len(filtered))
-        return filtered
+        capped = filtered[: settings.MAX_REPO_FILES]
+        if len(filtered) > settings.MAX_REPO_FILES:
+            logger.warning("Capping repository analysis to %s files from %s discovered files", len(capped), len(filtered))
+        return capped
 
     def get_file_content(self, owner: str, repo: str, branch: str, path: str) -> str:
         url = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{path}"
