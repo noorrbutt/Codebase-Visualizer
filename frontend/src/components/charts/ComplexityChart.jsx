@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { API } from "../../utils/lang";
 
 const BARS = [
   { key: "low",     label: "Low",  color: "#10B981" },
@@ -23,7 +24,7 @@ export default function ComplexityChart({ nodes, repoId }) {
 
     const interval = setInterval(async () => {
       try {
-        const response = await fetch(`/api/repos/${repoId}`);
+        const response = await fetch(`${API}/repos/${repoId}`);
         if (!response.ok) return;
         const data = await response.json();
         if (data.status === "ready") {

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { API } from "../../utils/lang";
 
 const ROLE_COLOR = {
   entry_point: "#6366F1",
@@ -28,7 +29,7 @@ export default function FileRoles({ nodes, repoId }) {
 
     const interval = setInterval(async () => {
       try {
-        const response = await fetch(`/api/repos/${repoId}`);
+        const response = await fetch(`${API}/repos/${repoId}`);
         if (!response.ok) return;
         const data = await response.json();
         if (data.status === "ready") {
