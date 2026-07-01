@@ -76,6 +76,7 @@ class AIService:
                 "Return nothing else — no markdown, no explanation, just the JSON object. "
                 f"File: {file_path}. Content:\n{snippet}"
             )}],
+            response_format={"type": "json_object"},
             max_tokens=300,
             temperature=0.3,
         )
@@ -84,10 +85,10 @@ class AIService:
         if usage is not None:
             logger.info("AI file analysis usage: %s", usage)
 
-        if not raw_text.startswith("{"):
-            raise Exception("rate_limit: " + raw_text[:120])
-
-        parsed = json.loads(raw_text)
+        try:
+            parsed = json.loads(raw_text)
+        except json.JSONDecodeError as exc:
+            raise Exception("invalid_json: " + raw_text[:120]) from exc
 
         if not all(key in parsed for key in ("summary", "complexity", "role")):
             raise Exception("missing_keys: " + str(list(parsed.keys())))
@@ -97,6 +98,20 @@ class AIService:
             "complexity": str(parsed["complexity"]),
             "role": str(parsed["role"]),
         }
+
+    @staticmethod
+    def _is_retryable_rate_limit_error(exc: Exception) -> bool:
+        if exc.__class__.__name__ == "RateLimitError":
+            return True
+
+        if getattr(exc, "status_code", None) == 429:
+            return True
+
+        response = getattr(exc, "response", None)
+        if getattr(response, "status_code", None) == 429:
+            return True
+
+        return False
 
     async def analyze_file(self, file_path: str, content: str, timeout_seconds: float = 30.0) -> Dict[str, str]:
         if not self.client:
@@ -124,10 +139,7 @@ class AIService:
                     raise AIServiceError(f"AI file analysis timed out after {timeout_seconds}s") from exc
             except Exception as exc:
                 last_exc = exc
-                err = str(exc).lower()
-                is_rate_limit = "429" in err or "rate_limit" in err or "rate limit" in err
-
-                if not is_rate_limit or attempt == 2:
+                if not self._is_retryable_rate_limit_error(exc) or attempt == 2:
                     raise AIServiceError(str(exc)) from exc
 
             remaining = deadline - loop.time()

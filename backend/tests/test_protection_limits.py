@@ -22,6 +22,40 @@ class DummyResponse:
             raise RuntimeError("request failed")
 
 
+class DummyGroqMessage:
+    def __init__(self, content: str):
+        self.content = content
+
+
+class DummyGroqChoice:
+    def __init__(self, content: str):
+        self.message = DummyGroqMessage(content)
+
+
+class DummyGroqResponse:
+    def __init__(self, content: str):
+        self.choices = [DummyGroqChoice(content)]
+        self.usage = None
+
+
+class DummyGroqCompletions:
+    def __init__(self, handler):
+        self._handler = handler
+
+    def create(self, *args, **kwargs):
+        return self._handler(*args, **kwargs)
+
+
+class DummyGroqChat:
+    def __init__(self, handler):
+        self.completions = DummyGroqCompletions(handler)
+
+
+class DummyGroqClient:
+    def __init__(self, handler):
+        self.chat = DummyGroqChat(handler)
+
+
 def test_github_service_caps_large_file_tree(monkeypatch):
     service = GithubService()
     tree_payload = {
@@ -67,8 +101,13 @@ def test_ai_service_retries_with_async_sleep_and_timeout(monkeypatch):
     async def fake_sleep(delay: float) -> None:
         slept.append(delay)
 
+    class FakeRateLimitError(Exception):
+        def __init__(self):
+            super().__init__("too many requests")
+            self.status_code = 429
+
     def fake_call_analyze_file(*args, **kwargs):
-        raise Exception("rate_limit: 429")
+        raise FakeRateLimitError()
 
     monkeypatch.setattr(ai_module.asyncio, "sleep", fake_sleep)
     monkeypatch.setattr(service, "_call_analyze_file", fake_call_analyze_file)
@@ -77,3 +116,81 @@ def test_ai_service_retries_with_async_sleep_and_timeout(monkeypatch):
         asyncio.run(service.analyze_file("foo.py", "print('hi')"))
 
     assert slept
+
+
+def test_ai_service_does_not_retry_on_malformed_model_output(monkeypatch):
+    service = AIService(hourly_limit=10, daily_limit=10)
+    service.client = DummyGroqClient(
+        lambda *args, **kwargs: DummyGroqResponse("```json\nnot actually json")
+    )
+    service.ensure_budget_available = lambda: None
+
+    slept: list[float] = []
+
+    async def fake_sleep(delay: float) -> None:
+        slept.append(delay)
+
+    monkeypatch.setattr(ai_module.asyncio, "sleep", fake_sleep)
+
+    with pytest.raises(AIServiceError) as exc_info:
+        asyncio.run(service.analyze_file("foo.py", "print('hi')"))
+
+    assert "invalid_json" in str(exc_info.value)
+    assert slept == []
+
+
+def test_ai_service_retries_only_on_actual_rate_limit_errors(monkeypatch):
+    service = AIService(hourly_limit=10, daily_limit=10)
+    service.client = object()
+    service.ensure_budget_available = lambda: None
+
+    slept: list[float] = []
+    attempts = {"count": 0}
+
+    async def fake_sleep(delay: float) -> None:
+        slept.append(delay)
+
+    class FakeRateLimitError(Exception):
+        def __init__(self):
+            super().__init__("too many requests")
+            self.status_code = 429
+
+    def fake_call_analyze_file(*args, **kwargs):
+        attempts["count"] += 1
+        if attempts["count"] < 3:
+            raise FakeRateLimitError()
+        return {
+            "summary": "ok",
+            "complexity": "low",
+            "role": "utility",
+        }
+
+    monkeypatch.setattr(ai_module.asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(service, "_call_analyze_file", fake_call_analyze_file)
+
+    result = asyncio.run(service.analyze_file("foo.py", "print('hi')"))
+
+    assert result["summary"] == "ok"
+    assert attempts["count"] == 3
+    assert len(slept) == 2
+
+
+def test_ai_service_requests_structured_json_output(monkeypatch):
+    service = AIService(hourly_limit=10, daily_limit=10)
+
+    captured_kwargs = {}
+
+    def fake_create(*args, **kwargs):
+        captured_kwargs.update(kwargs)
+        return DummyGroqResponse('{"summary":"ok","complexity":"low","role":"utility"}')
+
+    service.client = DummyGroqClient(fake_create)
+
+    result = service._call_analyze_file("foo.py", "print('hi')")
+
+    assert result == {
+        "summary": "ok",
+        "complexity": "low",
+        "role": "utility",
+    }
+    assert captured_kwargs["response_format"] == {"type": "json_object"}
