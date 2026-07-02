@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api.routes.files import router as files_router
-from app.api.routes.repos import router as repos_router
+from app.api.routes.repos import resume_pending_repo_analyses, router as repos_router
 from app.config import settings
 from app.database import create_tables
 from app.exceptions import (
@@ -25,6 +25,7 @@ logger = get_logger(__name__)
 async def lifespan(app: FastAPI): 
     create_tables()
     logger.info("Database tables ready")
+    resume_pending_repo_analyses()
     yield
 
 app = FastAPI(
@@ -37,8 +38,8 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type", "X-API-Key"],
 )
 
 

@@ -1,0 +1,126 @@
+from __future__ import annotations
+
+from contextlib import contextmanager
+from pathlib import Path
+
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+import app.api.routes.repos as repos_module
+import app.database as database_module
+import app.main as main_module
+from app.api.routes.repos import router as repos_router
+from app.config import settings
+from app.database import Base
+from app.models.file_edge import FileEdge
+from app.models.file_node import FileNode
+from app.models.repository import Repository
+from app.main import app
+
+
+@pytest.fixture()
+def client(tmp_path, monkeypatch):
+    db_path = tmp_path / "test.db"
+    engine = create_engine(f"sqlite:///{db_path}", connect_args={"check_same_thread": False})
+    test_session_local = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
+
+    monkeypatch.setattr(database_module, "engine", engine)
+    monkeypatch.setattr(database_module, "SessionLocal", test_session_local)
+    monkeypatch.setattr(repos_module, "SessionLocal", test_session_local)
+    monkeypatch.setattr(main_module, "create_tables", lambda: Base.metadata.create_all(bind=engine))
+    monkeypatch.setattr(settings, "API_KEY", "test-key")
+
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
+
+    with TestClient(app) as test_client:
+        yield test_client
+
+
+def test_analyze_status_and_detail_flow(client, monkeypatch):
+    monkeypatch.setattr(repos_module.github_service, "parse_repo_url", lambda url: ("octocat", "hello-world"))
+    monkeypatch.setattr(repos_module.github_service, "get_repo_metadata", lambda owner, repo: {"default_branch": "main"})
+    monkeypatch.setattr(repos_module.repo_rate_limiter, "allow", lambda ip: True)
+    monkeypatch.setattr(repos_module, "_build_repo_analysis_with_timeout", lambda *args, **kwargs: None)
+
+    response = client.post(
+        "/repos/analyze",
+        json={"github_url": "https://github.com/octocat/hello-world"},
+        headers={"X-API-Key": "test-key"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    repo_id = body["id"]
+
+    with database_module.SessionLocal() as db:
+        repo = db.query(Repository).filter(Repository.id == repo_id).first()
+        assert repo is not None
+        repo.status = "ready"
+        repo.summary = "summary"
+        db.add(FileNode(repo_id=repo_id, file_path="src/app.py", language="python", line_count=1, import_count=0))
+        db.add(FileEdge(repo_id=repo_id, source="src/app.py", target="src/utils.py"))
+        db.commit()
+
+    status_response = client.get(f"/repos/{repo_id}/status")
+    detail_response = client.get(f"/repos/{repo_id}")
+
+    assert status_response.status_code == 200
+    assert status_response.json() == {"status": "ready"}
+    assert detail_response.status_code == 200
+    assert detail_response.json()["nodes"][0]["path"] == "src/app.py"
+    assert detail_response.json()["edges"][0]["source"] == "src/app.py"
+
+
+def test_analyze_rejects_missing_or_invalid_api_key(client, monkeypatch):
+    monkeypatch.setattr(repos_module.repo_rate_limiter, "allow", lambda ip: True)
+
+    missing = client.post("/repos/analyze", json={"github_url": "https://github.com/octocat/hello-world"})
+    invalid = client.post(
+        "/repos/analyze",
+        json={"github_url": "https://github.com/octocat/hello-world"},
+        headers={"X-API-Key": "wrong"},
+    )
+
+    assert missing.status_code == 401
+    assert invalid.status_code == 403
+
+
+def test_resume_pending_repo_analyses_schedules_background_tasks(tmp_path, monkeypatch):
+    db_path = tmp_path / "pending.db"
+    engine = create_engine(f"sqlite:///{db_path}", connect_args={"check_same_thread": False})
+    test_session_local = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
+
+    monkeypatch.setattr(database_module, "engine", engine)
+    monkeypatch.setattr(database_module, "SessionLocal", test_session_local)
+    monkeypatch.setattr(repos_module, "SessionLocal", test_session_local)
+
+    Base.metadata.create_all(bind=engine)
+
+    with test_session_local() as db:
+        db.add(
+            Repository(
+                github_url="https://github.com/octocat/hello-world",
+                repo_name="hello-world",
+                owner="octocat",
+                default_branch="main",
+                total_files=0,
+                status="parsing",
+            )
+        )
+        db.commit()
+
+    scheduled: list[tuple] = []
+
+    class FakeTaskLoop:
+        def create_task(self, coro):
+            coro.close()
+            scheduled.append(coro)
+
+    monkeypatch.setattr(repos_module.asyncio, "get_running_loop", lambda: FakeTaskLoop())
+
+    repos_module.resume_pending_repo_analyses()
+
+    assert len(scheduled) == 1

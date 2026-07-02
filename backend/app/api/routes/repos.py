@@ -227,6 +227,19 @@ async def _build_repo_analysis_with_timeout(repo_id: int, owner: str, repo_name:
             db.close()
 
 
+def resume_pending_repo_analyses() -> None:
+    db = SessionLocal()
+    try:
+        pending_repos = db.query(Repository).filter(Repository.status == "parsing").all()
+        for repo in pending_repos:
+            asyncio.get_running_loop().create_task(
+                _build_repo_analysis_with_timeout(repo.id, repo.owner, repo.repo_name, repo.github_url, repo.default_branch)
+            )
+            logger.info("Rescheduled pending analysis for repo %s", repo.id)
+    finally:
+        db.close()
+
+
 @router.post("/analyze", response_model=AnalyzeResponse)
 def analyze_repo(
     payload: AnalyzeRequest,
@@ -271,7 +284,11 @@ def analyze_repo(
         logger.error("Failed to save repository %s: %s", payload.github_url, exc)
         raise HTTPException(status_code=500, detail="Failed to persist repository data")
 
-    background_tasks.add_task(_build_repo_analysis_with_timeout, repo.id, owner, repo_name, str(payload.github_url), branch)
+    try:
+        background_tasks.add_task(_build_repo_analysis_with_timeout, repo.id, owner, repo_name, str(payload.github_url), branch)
+    except Exception as exc:
+        logger.error("Saved repository %s but failed to queue analysis: %s", payload.github_url, exc)
+        raise HTTPException(status_code=500, detail="Repository saved but analysis scheduling failed")
 
     response = AnalyzeResponse(
         id=repo.id,
