@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import secrets
 from pathlib import Path, PurePosixPath
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.database import SessionLocal, get_db
@@ -25,6 +26,17 @@ github_service = GithubService()
 code_parser = CodeParser()
 ai_service = AIService()
 repo_rate_limiter = IPRateLimiter(max_requests=settings.RATE_LIMIT_REQUESTS_PER_MINUTE, window_seconds=60)
+
+
+def _require_api_key(x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> None:
+    if not settings.API_KEY:
+        raise HTTPException(status_code=500, detail="API key not configured")
+
+    if x_api_key is None:
+        raise HTTPException(status_code=401, detail="Missing API key")
+
+    if not secrets.compare_digest(x_api_key, settings.API_KEY):
+        raise HTTPException(status_code=403, detail="Invalid API key")
 
 
 def _normalize_path_key(file_path: str) -> str:
@@ -201,14 +213,29 @@ async def _build_repo_analysis(repo_id: int, owner: str, repo_name: str, github_
         db.close()
 
 
+async def _build_repo_analysis_with_timeout(repo_id: int, owner: str, repo_name: str, github_url: str, branch: str) -> None:
+    try:
+        await asyncio.wait_for(_build_repo_analysis(repo_id, owner, repo_name, github_url, branch), timeout=120)
+    except asyncio.TimeoutError:
+        db = SessionLocal()
+        try:
+            repo = db.get(Repository, repo_id)
+            if repo is not None:
+                repo.status = "failed"
+                db.commit()
+        finally:
+            db.close()
+
+
 @router.post("/analyze", response_model=AnalyzeResponse)
 def analyze_repo(
     payload: AnalyzeRequest,
     background_tasks: BackgroundTasks,
+    _: None = Depends(_require_api_key),
     db: Session = Depends(get_db),
     request: Request = None,
 ) -> AnalyzeResponse:
-    client_ip = request.client.host if request and request.client else "unknown"
+    client_ip = IPRateLimiter.resolve_client_ip(request)
     if not repo_rate_limiter.allow(client_ip):
         raise HTTPException(status_code=429, detail="Rate limit exceeded for repository analysis")
     owner, repo_name = github_service.parse_repo_url(str(payload.github_url))
@@ -224,8 +251,11 @@ def analyze_repo(
         status="parsing",
     )
 
+    existing = db.query(Repository).filter(Repository.github_url == str(payload.github_url)).first()
+    if existing and existing.status == "parsing":
+        raise HTTPException(status_code=409, detail="Repository analysis is already in progress")
+
     try:
-        existing = db.query(Repository).filter(Repository.github_url == str(payload.github_url)).first()
         if existing:
             db.query(FileEdgeModel).filter(FileEdgeModel.repo_id == existing.id).delete()
             db.query(FileNode).filter(FileNode.repo_id == existing.id).delete()
@@ -241,7 +271,7 @@ def analyze_repo(
         logger.error("Failed to save repository %s: %s", payload.github_url, exc)
         raise HTTPException(status_code=500, detail="Failed to persist repository data")
 
-    background_tasks.add_task(_build_repo_analysis, repo.id, owner, repo_name, str(payload.github_url), branch)
+    background_tasks.add_task(_build_repo_analysis_with_timeout, repo.id, owner, repo_name, str(payload.github_url), branch)
 
     response = AnalyzeResponse(
         id=repo.id,

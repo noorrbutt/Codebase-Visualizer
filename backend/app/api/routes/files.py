@@ -30,7 +30,7 @@ async def analyze_file(
     db: Session = Depends(get_db),
     request: Request = None,
 ) -> FileAnalyzeResponse:
-    client_ip = request.client.host if request and request.client else "unknown"
+    client_ip = IPRateLimiter.resolve_client_ip(request)
     if not file_rate_limiter.allow(client_ip):
         raise HTTPException(status_code=429, detail="Rate limit exceeded for file analysis")
     node = (

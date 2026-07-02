@@ -1,7 +1,11 @@
 import asyncio
+from types import SimpleNamespace
 
 import pytest
+from fastapi import HTTPException
 
+from app.api.routes.repos import _require_api_key
+from app.config import settings
 import app.services.ai as ai_module
 from app.exceptions import AIServiceError
 from app.services.ai import AIService
@@ -36,6 +40,24 @@ class DummyGroqResponse:
     def __init__(self, content: str):
         self.choices = [DummyGroqChoice(content)]
         self.usage = None
+
+
+class FakeRedis:
+    def __init__(self):
+        self.values: dict[str, int] = {}
+        self.expirations: dict[str, int] = {}
+
+    def incr(self, key: str) -> int:
+        self.values[key] = self.values.get(key, 0) + 1
+        return self.values[key]
+
+    def expire(self, key: str, ttl: int) -> bool:
+        self.expirations[key] = ttl
+        return True
+
+    def get(self, key: str):
+        value = self.values.get(key)
+        return None if value is None else str(value)
 
 
 class DummyGroqCompletions:
@@ -75,20 +97,54 @@ def test_github_service_caps_large_file_tree(monkeypatch):
 
 
 def test_rate_limiter_blocks_excess_requests():
-    limiter = IPRateLimiter(max_requests=2, window_seconds=60)
+    limiter = IPRateLimiter(max_requests=2, window_seconds=60, redis_client=FakeRedis())
 
     assert limiter.allow("203.0.113.1") is True
     assert limiter.allow("203.0.113.1") is True
     assert limiter.allow("203.0.113.1") is False
 
 
+def test_rate_limiter_uses_forwarded_for_header():
+    request = SimpleNamespace(
+        headers={"x-forwarded-for": "198.51.100.7, 10.0.0.1"},
+        client=SimpleNamespace(host="203.0.113.5"),
+    )
+
+    assert IPRateLimiter.resolve_client_ip(request) == "198.51.100.7"
+
+
 def test_ai_service_enforces_budget_limits():
-    service = AIService(hourly_limit=1, daily_limit=1)
+    service = AIService(hourly_limit=1, daily_limit=1, redis_client=FakeRedis())
 
     service.ensure_budget_available()
 
     with pytest.raises(AIServiceError):
         service.ensure_budget_available()
+
+
+def test_ai_service_uses_redis_budgets(monkeypatch):
+    fake_redis = FakeRedis()
+    monkeypatch.setattr(ai_module, "get_redis_client", lambda: fake_redis)
+
+    first_service = AIService(hourly_limit=1, daily_limit=1)
+    second_service = AIService(hourly_limit=1, daily_limit=1)
+
+    first_service.ensure_budget_available()
+
+    with pytest.raises(AIServiceError):
+        second_service.ensure_budget_available()
+
+
+def test_repo_api_key_dependency(monkeypatch):
+    monkeypatch.setattr(settings, "API_KEY", "secret-token")
+
+    _require_api_key("secret-token")
+
+    with pytest.raises(HTTPException):
+        _require_api_key(None)
+
+    with pytest.raises(HTTPException):
+        _require_api_key("wrong-token")
 
 
 def test_ai_service_retries_with_async_sleep_and_timeout(monkeypatch):

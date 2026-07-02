@@ -2,14 +2,15 @@ from __future__ import annotations
 
 import asyncio
 import json
-import time
 from typing import Dict, List
 
 from groq import Groq
+from redis import Redis
 
 from app.config import settings
 from app.exceptions import AIServiceError
 from app.logging import get_logger
+from app.services.redis_client import get_redis_client
 
 logger = get_logger(__name__)
 
@@ -17,25 +18,33 @@ GROQ_MODEL = "openai/gpt-oss-120b"
 
 
 class AIService:
-    def __init__(self, hourly_limit: int | None = None, daily_limit: int | None = None) -> None:
+    def __init__(self, hourly_limit: int | None = None, daily_limit: int | None = None, redis_client: Redis | None = None) -> None:
         self.client = Groq(api_key=settings.GROQ_API_KEY) if settings.GROQ_API_KEY else None
         self.hourly_limit = hourly_limit if hourly_limit is not None else settings.AI_MAX_REQUESTS_PER_HOUR
         self.daily_limit = daily_limit if daily_limit is not None else settings.AI_MAX_REQUESTS_PER_DAY
-        self._hourly_usage: list[float] = []
-        self._daily_usage: list[float] = []
+        self._redis_client = redis_client
+
+    def _get_redis_client(self) -> Redis:
+        return self._redis_client or get_redis_client()
 
     def ensure_budget_available(self) -> None:
-        now = time.time()
-        self._hourly_usage = [ts for ts in self._hourly_usage if now - ts < 3600]
-        self._daily_usage = [ts for ts in self._daily_usage if now - ts < 86400]
+        redis_client = self._get_redis_client()
 
-        if len(self._hourly_usage) >= self.hourly_limit:
+        hourly_key = "ai_budget:hourly"
+        daily_key = "ai_budget:daily"
+
+        hourly_count = int(redis_client.incr(hourly_key))
+        if hourly_count == 1:
+            redis_client.expire(hourly_key, 3600)
+
+        daily_count = int(redis_client.incr(daily_key))
+        if daily_count == 1:
+            redis_client.expire(daily_key, 86400)
+
+        if hourly_count > self.hourly_limit:
             raise AIServiceError("AI request hourly budget exceeded")
-        if len(self._daily_usage) >= self.daily_limit:
+        if daily_count > self.daily_limit:
             raise AIServiceError("AI request daily budget exceeded")
-
-        self._hourly_usage.append(now)
-        self._daily_usage.append(now)
 
     def generate_repo_summary(self, repo_name: str, file_list: List[str]) -> str:
         if not self.client:

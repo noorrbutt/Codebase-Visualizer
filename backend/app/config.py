@@ -4,8 +4,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     GROQ_API_KEY: str | None = None
+    API_KEY: str | None = None
     DATABASE_URL: str = "sqlite:///./codebase_visualizer.db"
     GITHUB_TOKEN: str | None = None
+    REDIS_URL: str = "redis://localhost:6379/0"
     APP_ENV: str = "development"
     LOG_LEVEL: str = "INFO"
     CORS_ORIGINS: list[str] = ["http://localhost:5173", "http://localhost:3000"]

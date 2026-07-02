@@ -1,5 +1,9 @@
 from app.api.routes.repos import _build_edges
+from app.exceptions import RepoParseError
+from app.services.github import GithubService
 from app.services.parser import CodeParser
+
+import pytest
 
 
 def test_parse_python_imports():
@@ -52,3 +56,13 @@ def test_unsupported_extension():
 
     assert result["language"] == "text"
     assert result["imports"] == []
+
+
+def test_parse_repo_url_rejects_invalid_owner_or_repo():
+    service = GithubService()
+
+    with pytest.raises(RepoParseError):
+        service.parse_repo_url("https://github.com/bad!/repo")
+
+    with pytest.raises(RepoParseError):
+        service.parse_repo_url("https://github.com/owner/bad repo")

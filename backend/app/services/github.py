@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlparse
 
@@ -18,6 +19,7 @@ logger = get_logger(__name__)
 SUPPORTED_EXTENSIONS = {".py", ".js", ".jsx", ".ts", ".tsx", ".html", ".css", ".md"}
 MAX_FILE_SIZE_BYTES = 102_400
 DEFAULT_MAX_REPO_FILES = 300
+_NAME_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 
 
 class GithubService:
@@ -149,5 +151,8 @@ class GithubService:
         owner, repo = parts[0], parts[1].removesuffix(".git")
         if not owner or not repo:
             raise RepoParseError("URL must include owner and repository name")
+
+        if not _NAME_RE.fullmatch(owner) or not _NAME_RE.fullmatch(repo):
+            raise RepoParseError("owner and repository names may only contain letters, numbers, underscore, dot, or hyphen")
 
         return owner, repo
