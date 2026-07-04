@@ -8,81 +8,131 @@ import GraphView from "./components/graph/GraphView";
 import FileListPanel from "./components/panels/FileListPanel";
 import NodeDetail from "./components/panels/NodeDetail";
 
-function StatCard({ label, value, sub }) {
+function StatCard({ label, value, sub, icon, tint }) {
   return (
     <div
       style={{
         background: "var(--surface)",
         border: "1px solid var(--border)",
-        borderRadius: 10,
-        padding: "16px 18px",
+        borderRadius: 12,
+        padding: "18px 20px",
         display: "flex",
-        flexDirection: "column",
-        gap: 3,
+        alignItems: "center",
+        gap: 14,
+        boxShadow: "0 1px 2px rgba(16,24,40,0.04)",
       }}
     >
-      <span
+      <div
         style={{
-          fontFamily: "'DM Sans', sans-serif",
-          fontSize: 11,
-          color: "var(--subtle)",
-          letterSpacing: "0.05em",
-          textTransform: "uppercase",
+          width: 44,
+          height: 44,
+          borderRadius: 10,
+          background: tint.bg,
+          color: tint.fg,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          flexShrink: 0,
         }}
       >
-        {label}
-      </span>
-      <span
-        style={{
-          fontFamily: "'Instrument Serif', Georgia, serif",
-          fontSize: 30,
-          color: "var(--fg)",
-          lineHeight: 1.1,
-        }}
-      >
-        {value}
-      </span>
-      {sub && (
+        {icon}
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
+        <span
+          style={{
+            fontFamily: "'Instrument Serif', Georgia, serif",
+            fontSize: 26,
+            color: "var(--fg)",
+            lineHeight: 1.1,
+          }}
+        >
+          {value}
+        </span>
         <span
           style={{
             fontFamily: "'DM Sans', sans-serif",
-            fontSize: 11,
-            color: "var(--subtle)",
+            fontSize: 12,
+            color: "var(--muted)",
           }}
         >
-          {sub}
+          {label}
         </span>
-      )}
+        {sub && (
+          <span
+            style={{
+              fontFamily: "'DM Sans', sans-serif",
+              fontSize: 11,
+              color: "var(--subtle)",
+            }}
+          >
+            {sub}
+          </span>
+        )}
+      </div>
     </div>
   );
 }
 
-function ChartCard({ title, children }) {
+const ICONS = {
+  files: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+      <path d="M6 3h9l5 5v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+      <path d="M14 3v5h5" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+    </svg>
+  ),
+  link: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+      <path d="M9 15l6-6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <path d="M10 6.5l1-1a4 4 0 0 1 5.7 5.7l-1.4 1.4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <path d="M14 17.5l-1 1a4 4 0 0 1-5.7-5.7l1.4-1.4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  ),
+  deps: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+      <circle cx="6" cy="6" r="2.5" stroke="currentColor" strokeWidth="1.8" />
+      <circle cx="18" cy="6" r="2.5" stroke="currentColor" strokeWidth="1.8" />
+      <circle cx="12" cy="18" r="2.5" stroke="currentColor" strokeWidth="1.8" />
+      <path d="M8 7.5L11 16M16 7.5L13 16M8.5 6h7" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  ),
+  lines: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+      <path d="M4 6h16M4 12h16M4 18h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  ),
+};
+
+function ChartCard({ title, children, minHeight = 260 }) {
   return (
     <div
       style={{
         background: "var(--surface)",
         border: "1px solid var(--border)",
-        borderRadius: 10,
-        padding: "16px 18px",
+        borderRadius: 12,
+        padding: "18px 20px",
         display: "flex",
         flexDirection: "column",
-        gap: 12,
+        gap: 14,
+        minHeight,
+        boxShadow: "0 1px 2px rgba(16,24,40,0.04)",
       }}
     >
       <p
         style={{
           fontFamily: "'DM Sans', sans-serif",
           fontSize: 11,
+          fontWeight: 600,
           color: "var(--subtle)",
           margin: 0,
-          letterSpacing: "0.05em",
+          letterSpacing: "0.06em",
           textTransform: "uppercase",
         }}
       >
         {title}
       </p>
-      {children}
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center" }}>
+        {children}
+      </div>
     </div>
   );
 }
@@ -256,20 +306,31 @@ export default function DashboardPage({ data, onReset }) {
               marginBottom: 14,
             }}
           >
-            <StatCard label="Total files" value={data.nodes.length.toLocaleString()} />
+            <StatCard
+              label="Total files"
+              value={data.nodes.length.toLocaleString()}
+              icon={ICONS.files}
+              tint={{ bg: "#EEF2FF", fg: "#4F46E5" }}
+            />
             <StatCard
               label="Connected files"
               value={connectedCount.toLocaleString()}
               sub={`${Math.round((connectedCount / data.nodes.length) * 100)}% of codebase`}
+              icon={ICONS.link}
+              tint={{ bg: "#ECFDF5", fg: "#059669" }}
             />
             <StatCard
               label="Dependencies"
               value={data.edges.length.toLocaleString()}
               sub="import connections"
+              icon={ICONS.deps}
+              tint={{ bg: "#FEF2F2", fg: "#DC2626" }}
             />
             <StatCard
               label="Total lines"
               value={totalLines > 999 ? `${(totalLines / 1000).toFixed(1)}k` : totalLines}
+              icon={ICONS.lines}
+              tint={{ bg: "#F5F3FF", fg: "#7C3AED" }}
             />
           </div>
 

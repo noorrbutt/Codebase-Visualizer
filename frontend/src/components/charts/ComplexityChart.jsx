@@ -49,73 +49,132 @@ export default function ComplexityChart({ nodes, repoId }) {
     return c;
   }, [displayNodes]);
 
-  const max = Math.max(...BARS.map((b) => counts[b.key]), 1);
-  const BAR_H = 120;
-  const BAR_W = 36;
-  const GAP = 16;
-  const CHART_W = BARS.length * (BAR_W + GAP) - GAP;
-  const LABEL_H = 24;
-  const SVG_H = BAR_H + LABEL_H + 16;
+  const total = Object.values(counts).reduce((s, v) => s + v, 0);
+  const analyzed = counts.low + counts.medium + counts.high;
+
+  const SIZE = 130;
+  const CX = SIZE / 2;
+  const CY = SIZE / 2;
+  const R = 50;
+  const INNER = 33;
+  const STROKE = R - INNER;
+  const CIRCUMFERENCE = 2 * Math.PI * (R - STROKE / 2);
+
+  const slices = useMemo(() => {
+    // build slices and compute cumulative offsets without reassigning a variable
+    const result = BARS.filter((b) => counts[b.key] > 0).reduce(
+      (acc, b) => {
+        const pct = counts[b.key] / total;
+        const dash = pct * CIRCUMFERENCE;
+        acc.slices.push({ ...b, count: counts[b.key], pct, dash, offset: acc.totalOffset });
+        acc.totalOffset += dash;
+        return acc;
+      },
+      { slices: [], totalOffset: 0 }
+    );
+
+    return result.slices;
+  }, [counts, total]);
+
+  if (total === 0 || analyzed === 0) {
+    return (
+      <div
+        style={{
+          height: SIZE,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          flexDirection: "column",
+          gap: 4,
+        }}
+      >
+        <span style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 12, color: "#9CA3AF" }}>
+          Analyzing complexity…
+        </span>
+        <span style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 11, color: "#D1D5DB" }}>
+          Results appear once AI analysis finishes
+        </span>
+      </div>
+    );
+  }
 
   return (
-    <svg width="100%" viewBox={`0 0 ${CHART_W + 8} ${SVG_H}`} style={{ overflow: "visible" }}>
-      {BARS.map(({ key, label, color }, i) => {
-        const count = counts[key];
-        const filledH = ((count / max) * BAR_H) || 2;
-        const y = BAR_H - filledH;
-        const x = i * (BAR_W + GAP) + 4;
+    <div style={{ display: "flex", gap: 20, alignItems: "center" }}>
+      <svg width={SIZE} height={SIZE} style={{ flexShrink: 0, overflow: "visible" }}>
+        {slices.map(({ key, dash, offset, color }, i) => (
+          <circle
+            key={key}
+            cx={CX}
+            cy={CY}
+            r={R - STROKE / 2}
+            fill="none"
+            stroke={color}
+            strokeWidth={STROKE}
+            strokeDasharray={`${dash} ${CIRCUMFERENCE - dash}`}
+            strokeDashoffset={-offset + CIRCUMFERENCE / 4}
+            style={{
+              transition: "stroke-dasharray 0.6s cubic-bezier(.4,0,.2,1)",
+              animationDelay: `${i * 80}ms`,
+            }}
+          />
+        ))}
+        <text
+          x={CX}
+          y={CY - 5}
+          textAnchor="middle"
+          dominantBaseline="middle"
+          style={{ fontFamily: "'DM Mono', monospace", fontSize: 18, fontWeight: 600, fill: "var(--fg)" }}
+        >
+          {total}
+        </text>
+        <text
+          x={CX}
+          y={CY + 12}
+          textAnchor="middle"
+          dominantBaseline="middle"
+          style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 10, fill: "var(--subtle)" }}
+        >
+          files
+        </text>
+      </svg>
 
-        return (
-          <g key={key}>
-            {/* track */}
-            <rect
-              x={x}
-              y={0}
-              width={BAR_W}
-              height={BAR_H}
-              rx={4}
-              fill="#F3F4F6"
-            />
-            {/* fill */}
-            <rect
-              x={x}
-              y={y}
-              width={BAR_W}
-              height={filledH}
-              rx={4}
-              fill={color}
+      <div style={{ display: "flex", flexDirection: "column", gap: 8, flex: 1 }}>
+        {BARS.map(({ key, label, color }) => (
+          <div key={key} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span
               style={{
-                transition: "height 0.7s cubic-bezier(.4,0,.2,1), y 0.7s cubic-bezier(.4,0,.2,1)",
+                width: 9,
+                height: 9,
+                borderRadius: 3,
+                background: color,
+                flexShrink: 0,
               }}
             />
-            {/* count label */}
-            {count > 0 && (
-              <text
-                x={x + BAR_W / 2}
-                y={y - 5}
-                textAnchor="middle"
-                style={{
-                  fontFamily: "'DM Mono', monospace",
-                  fontSize: 11,
-                  fill: "#374151",
-                  fontWeight: 600,
-                }}
-              >
-                {count}
-              </text>
-            )}
-            {/* x label */}
-            <text
-              x={x + BAR_W / 2}
-              y={BAR_H + 16}
-              textAnchor="middle"
-              style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 11, fill: "#9CA3AF" }}
+            <span
+              style={{
+                fontFamily: "'DM Sans', sans-serif",
+                fontSize: 12,
+                color: "#374151",
+                flex: 1,
+              }}
             >
               {label}
-            </text>
-          </g>
-        );
-      })}
-    </svg>
+            </span>
+            <span
+              style={{
+                fontFamily: "'DM Mono', monospace",
+                fontSize: 12,
+                fontWeight: 600,
+                color: "#111827",
+                minWidth: 20,
+                textAlign: "right",
+              }}
+            >
+              {counts[key]}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
