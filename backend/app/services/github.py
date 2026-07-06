@@ -20,9 +20,26 @@ SUPPORTED_EXTENSIONS = {".py", ".js", ".jsx", ".ts", ".tsx", ".html", ".css", ".
 MAX_FILE_SIZE_BYTES = 102_400
 DEFAULT_MAX_REPO_FILES = 300
 _NAME_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
+_BRANCH_RE = re.compile(r"^[A-Za-z0-9_.\-/]+$")
 
 
 class GithubService:
+    def _validate_branch(self, branch: str) -> None:
+        if not branch:
+            raise RepoParseError("branch name must not be empty")
+
+        if len(branch) > 255:
+            raise RepoParseError("branch name is too long")
+
+        if ".." in branch:
+            raise RepoParseError("branch name may not contain '..'")
+
+        if branch.startswith("/"):
+            raise RepoParseError("branch name may not start with '/'")
+
+        if not _BRANCH_RE.fullmatch(branch):
+            raise RepoParseError("branch name may only contain letters, numbers, underscore, dot, hyphen, or slash")
+
     def _get_headers(self) -> dict:
         headers: dict[str, str] = {"Accept": "application/vnd.github+json"}
 
@@ -54,6 +71,10 @@ class GithubService:
         return metadata
 
     def get_file_tree(self, owner: str, repo: str, branch: str) -> list[dict]:
+        # Branch names currently come from GitHub metadata responses, but this validation
+        # provides defense in depth if future callers pass a custom branch value.
+        self._validate_branch(branch)
+
         url = f"https://api.github.com/repos/{owner}/{repo}/git/trees/{branch}?recursive=1"
         logger.info("Fetching GitHub tree: %s", url)
         response = requests.get(url, headers=self._get_headers(), timeout=10)
@@ -110,6 +131,10 @@ class GithubService:
         return capped
 
     def get_file_content(self, owner: str, repo: str, branch: str, path: str) -> str:
+        # Branch names currently come from GitHub metadata responses, but this validation
+        # provides defense in depth if future callers pass a custom branch value.
+        self._validate_branch(branch)
+
         url = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{path}"
         logger.info("Fetching raw file content: %s", url)
         response = requests.get(url, headers=self._get_headers(), timeout=10)

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import pytest
+
+from app.exceptions import RepoParseError
 from app.services.github import GithubService
 
 
@@ -64,3 +67,21 @@ def test_get_file_content_returns_raw_text(monkeypatch):
     monkeypatch.setattr("app.services.github.requests.get", fake_get)
 
     assert service.get_file_content("octocat", "hello-world", "main", "src/app.py") == "print('hello')"
+
+
+def test_get_file_tree_accepts_branch_names_with_slashes(monkeypatch):
+    service = GithubService()
+    monkeypatch.setattr("app.services.github.requests.get", lambda *args, **kwargs: DummyResponse(200, {"tree": []}))
+
+    assert service.get_file_tree("octocat", "hello-world", "release/1.0") == []
+
+
+@pytest.mark.parametrize("branch", ["feature..x", "bad branch", "\n", ""])
+def test_branch_validation_rejects_invalid_names(branch):
+    service = GithubService()
+
+    with pytest.raises(RepoParseError):
+        service.get_file_tree("octocat", "hello-world", branch)
+
+    with pytest.raises(RepoParseError):
+        service.get_file_content("octocat", "hello-world", branch, "src/app.py")
