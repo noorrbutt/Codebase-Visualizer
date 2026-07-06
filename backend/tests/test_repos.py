@@ -127,3 +127,68 @@ def test_resume_pending_repo_analyses_schedules_background_tasks(tmp_path, monke
     repos_module.resume_pending_repo_analyses()
 
     assert len(scheduled) == 1
+
+
+def test_resume_pending_repo_analyses_claims_and_skips(tmp_path, monkeypatch):
+    db_path = tmp_path / "pending2.db"
+    engine = create_engine(f"sqlite:///{db_path}", connect_args={"check_same_thread": False})
+    test_session_local = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
+
+    monkeypatch.setattr(database_module, "engine", engine)
+    monkeypatch.setattr(database_module, "SessionLocal", test_session_local)
+    monkeypatch.setattr(repos_module, "SessionLocal", test_session_local)
+
+    Base.metadata.create_all(bind=engine)
+
+    from datetime import datetime, timedelta
+
+    with test_session_local() as db:
+        stale_time = datetime.utcnow() - timedelta(seconds=1000)
+        fresh_time = datetime.utcnow()
+
+        # stale locked repo should be reclaimed
+        db.add(
+            Repository(
+                github_url="https://github.com/octocat/stale",
+                repo_name="stale",
+                owner="octocat",
+                default_branch="main",
+                total_files=0,
+                status="parsing",
+                locked_at=stale_time,
+                worker_id="old",
+            )
+        )
+
+        # fresh locked repo should be skipped
+        db.add(
+            Repository(
+                github_url="https://github.com/octocat/fresh",
+                repo_name="fresh",
+                owner="octocat",
+                default_branch="main",
+                total_files=0,
+                status="parsing",
+                locked_at=fresh_time,
+                worker_id="other",
+            )
+        )
+
+        db.commit()
+
+    scheduled: list[tuple] = []
+
+    class FakeTaskLoop:
+        def create_task(self, coro):
+            coro.close()
+            scheduled.append(coro)
+
+    monkeypatch.setattr(repos_module.asyncio, "get_running_loop", lambda: FakeTaskLoop())
+
+    # ensure reclaim threshold small for test
+    monkeypatch.setattr(repos_module, "settings", repos_module.settings.__class__(RECLAIM_LOCK_AFTER_SECONDS=60))
+
+    repos_module.resume_pending_repo_analyses()
+
+    # only the stale record should have been scheduled
+    assert len(scheduled) == 1

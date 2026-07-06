@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import secrets
+import uuid
+from datetime import datetime, timedelta
 from pathlib import Path, PurePosixPath
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request
@@ -200,6 +202,9 @@ async def _build_repo_analysis(repo_id: int, owner: str, repo_name: str, github_
         summary = await asyncio.to_thread(ai_service.generate_repo_summary, repo_name, file_paths)
         repo.summary = summary
         repo.status = "ready"
+        # clear any claim information now that analysis completed
+        repo.locked_at = None
+        repo.worker_id = None
         db.commit()
         logger.info("Background repo analysis complete for repo %s", repo_id)
     except Exception as exc:
@@ -208,6 +213,8 @@ async def _build_repo_analysis(repo_id: int, owner: str, repo_name: str, github_
         repo = db.get(Repository, repo_id)
         if repo:
             repo.status = "failed"
+            repo.locked_at = None
+            repo.worker_id = None
             db.commit()
     finally:
         db.close()
@@ -222,6 +229,8 @@ async def _build_repo_analysis_with_timeout(repo_id: int, owner: str, repo_name:
             repo = db.get(Repository, repo_id)
             if repo is not None:
                 repo.status = "failed"
+                repo.locked_at = None
+                repo.worker_id = None
                 db.commit()
         finally:
             db.close()
@@ -231,11 +240,43 @@ def resume_pending_repo_analyses() -> None:
     db = SessionLocal()
     try:
         pending_repos = db.query(Repository).filter(Repository.status == "parsing").all()
+        reclaimed = 0
+        skipped = 0
+        worker_id = uuid.uuid4().hex
+        cutoff = datetime.utcnow() - timedelta(seconds=settings.RECLAIM_LOCK_AFTER_SECONDS)
+
         for repo in pending_repos:
-            asyncio.get_running_loop().create_task(
-                _build_repo_analysis_with_timeout(repo.id, repo.owner, repo.repo_name, repo.github_url, repo.default_branch)
+            rows = (
+                db.query(Repository)
+                .filter(Repository.id == repo.id, Repository.status == "parsing")
+                .filter((Repository.locked_at == None) | (Repository.locked_at < cutoff))
+                .update({Repository.locked_at: datetime.utcnow(), Repository.worker_id: worker_id}, synchronize_session=False)
             )
-            logger.info("Rescheduled pending analysis for repo %s", repo.id)
+            if rows:
+                db.commit()
+                try:
+                    asyncio.get_running_loop().create_task(
+                        _build_repo_analysis_with_timeout(repo.id, repo.owner, repo.repo_name, repo.github_url, repo.default_branch)
+                    )
+                except RuntimeError:
+                    # fallback if called outside of a running loop
+                    try:
+                        asyncio.get_event_loop().create_task(
+                            _build_repo_analysis_with_timeout(repo.id, repo.owner, repo.repo_name, repo.github_url, repo.default_branch)
+                        )
+                    except Exception:
+                        logger.exception("Failed to schedule reclaimed repo %s", repo.id)
+                        # leave the claim so another startup may reclaim later
+                        skipped += 1
+                        continue
+
+                reclaimed += 1
+                logger.info("Rescheduled pending analysis for repo %s (reclaimed)", repo.id)
+            else:
+                skipped += 1
+                logger.info("Skipped pending repo %s — currently locked by another worker", repo.id)
+
+        logger.info("Resume pending analyses summary: reclaimed=%d skipped=%d", reclaimed, skipped)
     finally:
         db.close()
 

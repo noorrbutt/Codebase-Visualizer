@@ -18,3 +18,6 @@ class Repository(Base):
     status = Column(String, nullable=False, default="parsing")
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
     updated_at = Column(DateTime, onupdate=func.now(), nullable=True)
+    # Locking fields used to claim long-running analysis work across restarts/workers
+    locked_at = Column(DateTime, nullable=True)
+    worker_id = Column(String, nullable=True)
