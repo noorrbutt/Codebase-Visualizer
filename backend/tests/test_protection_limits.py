@@ -250,3 +250,52 @@ def test_ai_service_requests_structured_json_output(monkeypatch):
         "role": "utility",
     }
     assert captured_kwargs["response_format"] == {"type": "json_object"}
+
+
+def test_ai_service_hourly_limit_three(fake_redis):
+    service = AIService(hourly_limit=3, daily_limit=1000, redis_client=fake_redis)
+
+    # first three calls should succeed
+    service.ensure_budget_available()
+    service.ensure_budget_available()
+    service.ensure_budget_available()
+
+    # fourth call exceeds hourly budget
+    with pytest.raises(AIServiceError):
+        service.ensure_budget_available()
+
+
+def test_ai_service_daily_limit_persists_across_hourly_reset(fake_redis):
+    service = AIService(hourly_limit=1000, daily_limit=2, redis_client=fake_redis)
+
+    # two requests consume the daily budget
+    service.ensure_budget_available()
+    service.ensure_budget_available()
+
+    # simulate hourly key expiring (advance clock past 1 hour)
+    fake_redis.advance(3601)
+
+    # next request should still count against daily budget and raise
+    with pytest.raises(AIServiceError):
+        service.ensure_budget_available()
+
+
+def test_ip_rate_limiter_per_ip_isolation_and_burst_rejection(fake_redis):
+    limiter = IPRateLimiter(max_requests=2, window_seconds=5, redis_client=fake_redis)
+
+    # interleave requests across two IPs; each IP has independent counters
+    assert limiter.allow("1.1.1.1") is True
+    assert limiter.allow("1.1.1.1") is True
+    assert limiter.allow("2.2.2.2") is True
+    assert limiter.allow("2.2.2.2") is True
+
+    # further requests for each IP are blocked independently
+    assert limiter.allow("1.1.1.1") is False
+    assert limiter.allow("2.2.2.2") is False
+
+
+def test_ip_rate_limiter_burst_within_same_second(fake_redis):
+    limiter = IPRateLimiter(max_requests=2, window_seconds=5, redis_client=fake_redis)
+
+    results = [limiter.allow("203.0.113.10") for _ in range(3)]
+    assert results == [True, True, False]
