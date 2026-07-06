@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import backref, relationship
 
 from app.database import Base
 
@@ -11,7 +11,7 @@ class FileNode(Base):
     __table_args__ = (UniqueConstraint("repo_id", "file_path", name="uq_repo_file_path"),)
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    repo_id = Column(Integer, ForeignKey("repository.id"), nullable=False)
+    repo_id = Column(Integer, ForeignKey("repository.id"), nullable=False, index=True)
     file_path = Column(String, nullable=False)
     language = Column(String, nullable=True)
     line_count = Column(Integer, nullable=False, default=0)
@@ -21,4 +21,4 @@ class FileNode(Base):
     ai_role = Column(String, nullable=True)
     analyzed_at = Column(DateTime, nullable=True)
 
-    repository = relationship("Repository", backref="file_nodes")
+    repository = relationship("Repository", backref=backref("file_nodes", cascade="all, delete-orphan"))

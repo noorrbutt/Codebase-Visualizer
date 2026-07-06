@@ -129,6 +129,36 @@ def test_resume_pending_repo_analyses_schedules_background_tasks(tmp_path, monke
     assert len(scheduled) == 1
 
 
+def test_deleting_repository_cascades_to_related_rows(client):
+    with database_module.SessionLocal() as db:
+        repo = Repository(
+            github_url="https://github.com/octocat/cascade-demo",
+            repo_name="cascade-demo",
+            owner="octocat",
+            default_branch="main",
+            total_files=1,
+            status="ready",
+        )
+        db.add(repo)
+        db.flush()
+
+        db.add(FileNode(repo_id=repo.id, file_path="src/app.py", language="python", line_count=1, import_count=0))
+        db.add(FileEdge(repo_id=repo.id, source="src/app.py", target="src/utils.py"))
+        db.commit()
+        repo_id = repo.id
+
+    with database_module.SessionLocal() as db:
+        repo = db.get(Repository, repo_id)
+        assert repo is not None
+        db.delete(repo)
+        db.commit()
+
+    with database_module.SessionLocal() as db:
+        assert db.query(Repository).filter(Repository.id == repo_id).count() == 0
+        assert db.query(FileNode).filter(FileNode.repo_id == repo_id).count() == 0
+        assert db.query(FileEdge).filter(FileEdge.repo_id == repo_id).count() == 0
+
+
 def test_resume_pending_repo_analyses_claims_and_skips(tmp_path, monkeypatch):
     db_path = tmp_path / "pending2.db"
     engine = create_engine(f"sqlite:///{db_path}", connect_args={"check_same_thread": False})
