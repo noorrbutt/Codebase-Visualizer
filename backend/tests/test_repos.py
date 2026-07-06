@@ -30,7 +30,6 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(database_module, "SessionLocal", test_session_local)
     monkeypatch.setattr(repos_module, "SessionLocal", test_session_local)
     monkeypatch.setattr(main_module, "create_tables", lambda: Base.metadata.create_all(bind=engine))
-    monkeypatch.setattr(settings, "API_KEY", "test-key")
 
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
@@ -48,7 +47,6 @@ def test_analyze_status_and_detail_flow(client, monkeypatch):
     response = client.post(
         "/repos/analyze",
         json={"github_url": "https://github.com/octocat/hello-world"},
-        headers={"X-API-Key": "test-key"},
     )
 
     assert response.status_code == 200
@@ -74,18 +72,23 @@ def test_analyze_status_and_detail_flow(client, monkeypatch):
     assert detail_response.json()["edges"][0]["source"] == "src/app.py"
 
 
-def test_analyze_rejects_missing_or_invalid_api_key(client, monkeypatch):
+def test_analyze_is_public_but_rate_limited(client, monkeypatch):
     monkeypatch.setattr(repos_module.repo_rate_limiter, "allow", lambda ip: True)
 
-    missing = client.post("/repos/analyze", json={"github_url": "https://github.com/octocat/hello-world"})
-    invalid = client.post(
+    response = client.post("/repos/analyze", json={"github_url": "https://github.com/octocat/hello-world"})
+
+    assert response.status_code == 200
+
+
+def test_analyze_rejects_when_rate_limited(client, monkeypatch):
+    monkeypatch.setattr(repos_module.repo_rate_limiter, "allow", lambda ip: False)
+
+    response = client.post(
         "/repos/analyze",
         json={"github_url": "https://github.com/octocat/hello-world"},
-        headers={"X-API-Key": "wrong"},
     )
 
-    assert missing.status_code == 401
-    assert invalid.status_code == 403
+    assert response.status_code == 429
 
 
 def test_resume_pending_repo_analyses_schedules_background_tasks(tmp_path, monkeypatch):

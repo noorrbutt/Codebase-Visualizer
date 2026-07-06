@@ -67,16 +67,20 @@ npm run dev
 
 2. Open the frontend (Vite) server address (usually http://localhost:5173) and point the app at the backend API (default backend: http://localhost:8000). You can set `VITE_API_URL` in `frontend/.env` if your backend runs on a different host/port.
 
+The frontend does not use any shared secret or API key. Browser code is public, so abuse control for this demo comes from backend rate limiting rather than a client-side credential.
+
 ## Environment variables
 
 | Name | Required | Description |
 |------|----------|-------------|
 | `GROQ_API_KEY` | Yes | API key for the Groq LLM used for file and repo analysis. Without this the AI features will fail. |
+| `VITE_API_URL` | No | Frontend-only backend base URL for local development. It is not an auth boundary. |
 | `GITHUB_TOKEN` | No | Optional GitHub Personal Access Token — increases API rate limits when fetching repository trees and files. |
 | `DATABASE_URL` | No | Database connection string. Defaults to a local SQLite file when not provided. Production deployments should point this to PostgreSQL because SQLite will not handle concurrent background writes well. 
 
 ## Limitations & Notes
 
 - Only public GitHub repositories are supported. Private repositories are not supported by this demo.
+- Public repository analysis is protected by server-side IP rate limiting, not by any frontend-exposed secret.
 - AI requests are throttled and performed in background tasks — analysis of large repositories will take time and may be subject to rate limits.
 - This repository intentionally does not implement authentication, onboarding flows, or team/collaboration features.

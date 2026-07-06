@@ -244,7 +244,6 @@ def resume_pending_repo_analyses() -> None:
 def analyze_repo(
     payload: AnalyzeRequest,
     background_tasks: BackgroundTasks,
-    _: None = Depends(_require_api_key),
     db: Session = Depends(get_db),
     request: Request = None,
 ) -> AnalyzeResponse:

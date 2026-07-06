@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import DashboardPage from "./DashboardPage";
-import { API, API_KEY, getLangColor } from "./utils/lang";
+import { API, getLangColor } from "./utils/lang";
 
 function HomePage({ onAnalyze, loading, externalError, onClearError }) {
   const [url, setUrl] = useState("");
@@ -141,10 +141,9 @@ export default function App() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "X-API-Key": API_KEY,
-    },
-    body: JSON.stringify({ github_url: url }),
-});
+        },
+        body: JSON.stringify({ github_url: url }),
+      });
       if (!res.ok) {
         const errorBody = await res.json().catch(() => null);
         const detail = errorBody?.detail || errorBody?.message || res.statusText || "Analysis failed";
