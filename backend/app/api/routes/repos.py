@@ -249,7 +249,7 @@ def resume_pending_repo_analyses() -> None:
             rows = (
                 db.query(Repository)
                 .filter(Repository.id == repo.id, Repository.status == "parsing")
-                .filter((Repository.locked_at is None) | (Repository.locked_at < cutoff))
+                .filter((Repository.locked_at.is_(None)) | (Repository.locked_at < cutoff))
                 .update({Repository.locked_at: datetime.utcnow(), Repository.worker_id: worker_id}, synchronize_session=False)
             )
             if rows:
