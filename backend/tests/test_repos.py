@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+import app.api.dependencies as dependencies_module
 import app.api.routes.repos as repos_module
 import app.database as database_module
 import app.main as main_module
@@ -25,6 +26,9 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(database_module, "SessionLocal", test_session_local)
     monkeypatch.setattr(repos_module, "SessionLocal", test_session_local)
     monkeypatch.setattr(main_module, "create_tables", lambda: Base.metadata.create_all(bind=engine))
+    monkeypatch.setattr(main_module.settings, "API_KEY", "test-api-key")
+    monkeypatch.setattr(repos_module.settings, "API_KEY", "test-api-key")
+    monkeypatch.setattr(dependencies_module.settings, "API_KEY", "test-api-key", raising=False)
 
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
@@ -41,6 +45,7 @@ def test_analyze_status_and_detail_flow(client, monkeypatch):
 
     response = client.post(
         "/repos/analyze",
+        headers={"X-API-Key": "test-api-key"},
         json={"github_url": "https://github.com/octocat/hello-world"},
     )
 
@@ -67,12 +72,27 @@ def test_analyze_status_and_detail_flow(client, monkeypatch):
     assert detail_response.json()["edges"][0]["source"] == "src/app.py"
 
 
-def test_analyze_is_public_but_rate_limited(client, monkeypatch):
+def test_analyze_requires_api_key(client, monkeypatch):
+    monkeypatch.setattr(repos_module.github_service, "parse_repo_url", lambda url: ("octocat", "hello-world"))
+    monkeypatch.setattr(repos_module.github_service, "get_repo_metadata", lambda owner, repo: {"default_branch": "main"})
     monkeypatch.setattr(repos_module.repo_rate_limiter, "allow", lambda ip: True)
+    monkeypatch.setattr(repos_module, "_build_repo_analysis_with_timeout", lambda *args, **kwargs: None)
 
-    response = client.post("/repos/analyze", json={"github_url": "https://github.com/octocat/hello-world"})
+    missing_key_response = client.post("/repos/analyze", json={"github_url": "https://github.com/octocat/hello-world"})
+    wrong_key_response = client.post(
+        "/repos/analyze",
+        headers={"X-API-Key": "wrong-key"},
+        json={"github_url": "https://github.com/octocat/hello-world"},
+    )
+    correct_key_response = client.post(
+        "/repos/analyze",
+        headers={"X-API-Key": "test-api-key"},
+        json={"github_url": "https://github.com/octocat/hello-world"},
+    )
 
-    assert response.status_code == 200
+    assert missing_key_response.status_code == 401
+    assert wrong_key_response.status_code == 403
+    assert correct_key_response.status_code == 200
 
 
 def test_analyze_rejects_when_rate_limited(client, monkeypatch):
@@ -80,6 +100,7 @@ def test_analyze_rejects_when_rate_limited(client, monkeypatch):
 
     response = client.post(
         "/repos/analyze",
+        headers={"X-API-Key": "test-api-key"},
         json={"github_url": "https://github.com/octocat/hello-world"},
     )
 

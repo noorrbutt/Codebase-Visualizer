@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import asyncio
-import secrets
 import uuid
 from datetime import datetime, timedelta
 from pathlib import Path, PurePosixPath
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
+from app.api.dependencies import _require_api_key
 from app.database import SessionLocal, get_db
 from app.models.file_edge import FileEdge as FileEdgeModel
 from app.models.file_node import FileNode
@@ -28,17 +28,6 @@ github_service = GithubService()
 code_parser = CodeParser()
 ai_service = AIService()
 repo_rate_limiter = IPRateLimiter(max_requests=settings.RATE_LIMIT_REQUESTS_PER_MINUTE, window_seconds=60)
-
-
-def _require_api_key(x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> None:
-    if not settings.API_KEY:
-        raise HTTPException(status_code=500, detail="API key not configured")
-
-    if x_api_key is None:
-        raise HTTPException(status_code=401, detail="Missing API key")
-
-    if not secrets.compare_digest(x_api_key, settings.API_KEY):
-        raise HTTPException(status_code=403, detail="Invalid API key")
 
 
 def _normalize_path_key(file_path: str) -> str:
@@ -287,6 +276,7 @@ def analyze_repo(
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     request: Request = None,
+    _: None = Depends(_require_api_key),
 ) -> AnalyzeResponse:
     client_ip = IPRateLimiter.resolve_client_ip(request)
     if not repo_rate_limiter.allow(client_ip):

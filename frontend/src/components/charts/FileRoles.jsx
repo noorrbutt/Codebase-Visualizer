@@ -56,7 +56,7 @@ export default function FileRoles({ nodes, repoId }) {
   if (!entries.length) {
     return (
       <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 12, color: "#9CA3AF", margin: 0 }}>
-        AI role analysis not yet available.
+        AI role analysisv will be available soon.
       </p>
     );
   }

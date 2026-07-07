@@ -5,6 +5,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
+from app.api.dependencies import _require_api_key
 from app.database import get_db
 from app.exceptions import AIServiceError
 from app.config import settings
@@ -29,6 +30,7 @@ async def analyze_file(
     payload: FileAnalyzeRequest,
     db: Session = Depends(get_db),
     request: Request = None,
+    _: None = Depends(_require_api_key),
 ) -> FileAnalyzeResponse:
     client_ip = IPRateLimiter.resolve_client_ip(request)
     if not file_rate_limiter.allow(client_ip):
