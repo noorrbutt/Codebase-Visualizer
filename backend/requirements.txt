@@ -10,3 +10,4 @@ groq==0.12.0
 loguru==0.7.2
 redis==5.2.1
 ruff>=0.6,<0.7
+pytest==9.1.1
