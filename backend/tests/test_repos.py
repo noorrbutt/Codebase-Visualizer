@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-from contextlib import contextmanager
-from pathlib import Path
-
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -11,8 +8,6 @@ from sqlalchemy.orm import sessionmaker
 import app.api.routes.repos as repos_module
 import app.database as database_module
 import app.main as main_module
-from app.api.routes.repos import router as repos_router
-from app.config import settings
 from app.database import Base
 from app.models.file_edge import FileEdge
 from app.models.file_node import FileNode
