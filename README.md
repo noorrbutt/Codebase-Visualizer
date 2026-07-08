@@ -2,7 +2,7 @@
 
 ![CI](https://github.com/noorrbutt/Codebase-Visualizer/actions/workflows/ci.yml/badge.svg)
 
-A small AI-powered GitHub repository analyzer that builds a repository dependency graph, runs per-file AI analysis (role, complexity, short summary), and presents an interactive force-directed graph in the browser. Point it at any public GitHub repository and it will fetch source files, parse imports to build a graph, request file-level AI insights, and expose a dashboard with charts and a file viewer.
+A small AI-powered GitHub repository analyzer that builds a repository dependency graph, runs per-file AI analysis and presents an interactive force-directed graph in the browser. Point it at any public GitHub repository and it will fetch source files, parse imports to build a graph, request file-level AI insights, and expose a dashboard with charts and a file viewer.
 
 **This project is intended as a portfolio backend+frontend demo** it shows backend services for crawling and analyzing code, background AI processing, and a React-based interactive visualization frontend. It supports only public GitHub repositories (no authentication flows or private repo access are implemented).
 
