@@ -98,7 +98,10 @@ export default function NodeDetail({ node, edges, repoId, repoOwner, repoName, r
     const doFetch = async () => {
       return fetch(`${API}/files/analyze`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "X-API-Key": import.meta.env.VITE_API_KEY,
+        },
         body: JSON.stringify({ repo_id: repoId, file_path: node.path }),
       });
     };
