@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     CORS_ORIGINS: list[str] = ["http://localhost:5173", "http://localhost:3000"]
     RATE_LIMIT_REQUESTS_PER_MINUTE: int = 20
     MAX_REPO_FILES: int = 300
+    TRUST_PROXY_HEADERS: bool = False
     # Number of seconds after which a repo lock is considered stale and may be reclaimed
     RECLAIM_LOCK_AFTER_SECONDS: int = 600
     AI_MAX_REQUESTS_PER_HOUR: int = 60

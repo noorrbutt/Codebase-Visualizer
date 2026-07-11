@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 
-from app.api.routes.repos import _require_api_key
+from app.api.dependencies import _require_api_key
 from app.config import settings
 import app.services.ai as ai_module
 from app.exceptions import AIServiceError
@@ -104,7 +104,9 @@ def test_rate_limiter_blocks_excess_requests():
     assert limiter.allow("203.0.113.1") is False
 
 
-def test_rate_limiter_uses_forwarded_for_header():
+def test_rate_limiter_uses_forwarded_for_header(monkeypatch):
+    monkeypatch.setattr(settings, "TRUST_PROXY_HEADERS", True)
+
     request = SimpleNamespace(
         headers={"x-forwarded-for": "198.51.100.7, 10.0.0.1"},
         client=SimpleNamespace(host="203.0.113.5"),

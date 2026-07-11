@@ -9,6 +9,7 @@ import app.api.dependencies as dependencies_module
 import app.api.routes.repos as repos_module
 import app.database as database_module
 import app.main as main_module
+import app.services.rate_limit as rate_limit_module
 from app.database import Base
 from app.models.file_edge import FileEdge
 from app.models.file_node import FileNode
@@ -105,6 +106,20 @@ def test_analyze_rejects_when_rate_limited(client, monkeypatch):
     )
 
     assert response.status_code == 429
+
+
+def test_resolve_client_ip_ignores_spoofed_forwarded_header_by_default(monkeypatch):
+    monkeypatch.setattr(rate_limit_module.settings, "TRUST_PROXY_HEADERS", False)
+
+    class FakeClient:
+        host = "127.0.0.1"
+
+    class FakeRequest:
+        def __init__(self):
+            self.headers = {"x-forwarded-for": "8.8.8.8, 9.9.9.9"}
+            self.client = FakeClient()
+
+    assert rate_limit_module.IPRateLimiter.resolve_client_ip(FakeRequest()) == "127.0.0.1"
 
 
 def test_resume_pending_repo_analyses_schedules_background_tasks(tmp_path, monkeypatch):

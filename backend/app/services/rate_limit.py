@@ -5,6 +5,7 @@ import time
 from fastapi import Request
 from redis import Redis
 
+from app.config import settings
 from app.services.redis_client import get_redis_client
 
 
@@ -16,11 +17,14 @@ class IPRateLimiter:
 
     @staticmethod
     def resolve_client_ip(request: Request) -> str:
-        forwarded_for = request.headers.get("x-forwarded-for", "")
-        if forwarded_for:
-            forwarded_ip = forwarded_for.split(",")[0].strip()
-            if forwarded_ip:
-                return forwarded_ip
+        if settings.TRUST_PROXY_HEADERS:
+            # Enabling this later requires a trusted proxy configuration (for example
+            # trusted proxy count/IPs), not just flipping the flag.
+            forwarded_for = request.headers.get("x-forwarded-for", "")
+            if forwarded_for:
+                forwarded_ip = forwarded_for.split(",")[0].strip()
+                if forwarded_ip:
+                    return forwarded_ip
 
         if request.client and request.client.host:
             return request.client.host
