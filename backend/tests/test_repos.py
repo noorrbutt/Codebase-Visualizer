@@ -80,20 +80,9 @@ def test_analyze_requires_api_key(client, monkeypatch):
     monkeypatch.setattr(repos_module, "_build_repo_analysis_with_timeout", lambda *args, **kwargs: None)
 
     missing_key_response = client.post("/repos/analyze", json={"github_url": "https://github.com/octocat/hello-world"})
-    wrong_key_response = client.post(
-        "/repos/analyze",
-        headers={"X-API-Key": "wrong-key"},
-        json={"github_url": "https://github.com/octocat/hello-world"},
-    )
-    correct_key_response = client.post(
-        "/repos/analyze",
-        headers={"X-API-Key": "test-api-key"},
-        json={"github_url": "https://github.com/octocat/hello-world"},
-    )
 
-    assert missing_key_response.status_code == 401
-    assert wrong_key_response.status_code == 403
-    assert correct_key_response.status_code == 200
+    # API key is no longer required for browser-facing routes; request without key should be allowed
+    assert missing_key_response.status_code == 200
 
 
 def test_analyze_rejects_when_rate_limited(client, monkeypatch):
