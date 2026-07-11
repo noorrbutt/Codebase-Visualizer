@@ -8,7 +8,7 @@ from pathlib import Path, PurePosixPath
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
-from app.api.dependencies import _require_api_key
+# keep _require_api_key in dependencies.py for server-to-server routes
 from app.database import SessionLocal, get_db
 from app.models.file_edge import FileEdge as FileEdgeModel
 from app.models.file_node import FileNode
@@ -276,7 +276,6 @@ def analyze_repo(
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     request: Request = None,
-    _: None = Depends(_require_api_key),
 ) -> AnalyzeResponse:
     client_ip = IPRateLimiter.resolve_client_ip(request)
     if not repo_rate_limiter.allow(client_ip):

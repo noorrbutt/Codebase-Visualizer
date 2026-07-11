@@ -100,7 +100,6 @@ export default function NodeDetail({ node, edges, repoId, repoOwner, repoName, r
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "X-API-Key": import.meta.env.VITE_API_KEY,
         },
         body: JSON.stringify({ repo_id: repoId, file_path: node.path }),
       });
@@ -120,7 +119,7 @@ export default function NodeDetail({ node, edges, repoId, repoOwner, repoName, r
       const data = await res.json();
       setAnalysis(data);
     } catch {
-      setAnalysisError("Analysis failed — check Groq API key.");
+      setAnalysisError("Analysis failed — try again later.");
     } finally {
       setLoadingAnalysis(false);
     }
