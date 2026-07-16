@@ -9,7 +9,7 @@ A small AI-powered GitHub repository analyzer that builds a repository dependenc
 ## Tech stack
 
 - Backend: FastAPI, SQLAlchemy, Alembic
-- AI: Groq (model reference: llama-3.3-70b) via the project's AI service wrapper
+- AI: Groq model via the project's AI service wrapper
 - Frontend: React, Vite, Canvas API (force-directed graph rendering)
 - Utilities: Python tooling for parsing and repo fetching, simple SQLite support via SQLAlchemy
 
