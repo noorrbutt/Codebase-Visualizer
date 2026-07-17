@@ -21,7 +21,9 @@ from app.main import app
 def client(tmp_path, monkeypatch):
     db_path = tmp_path / "test.db"
     engine = create_engine(f"sqlite:///{db_path}", connect_args={"check_same_thread": False})
-    test_session_local = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
+    test_session_local = sessionmaker(
+        bind=engine, autoflush=False, autocommit=False, expire_on_commit=False
+    )
 
     monkeypatch.setattr(database_module, "engine", engine)
     monkeypatch.setattr(database_module, "SessionLocal", test_session_local)
@@ -39,10 +41,18 @@ def client(tmp_path, monkeypatch):
 
 
 def test_analyze_status_and_detail_flow(client, monkeypatch):
-    monkeypatch.setattr(repos_module.github_service, "parse_repo_url", lambda url: ("octocat", "hello-world"))
-    monkeypatch.setattr(repos_module.github_service, "get_repo_metadata", lambda owner, repo: {"default_branch": "main"})
+    monkeypatch.setattr(
+        repos_module.github_service, "parse_repo_url", lambda url: ("octocat", "hello-world")
+    )
+    monkeypatch.setattr(
+        repos_module.github_service,
+        "get_repo_metadata",
+        lambda owner, repo: {"default_branch": "main"},
+    )
     monkeypatch.setattr(repos_module.repo_rate_limiter, "allow", lambda ip: True)
-    monkeypatch.setattr(repos_module, "_build_repo_analysis_with_timeout", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        repos_module, "_build_repo_analysis_with_timeout", lambda *args, **kwargs: None
+    )
 
     response = client.post(
         "/repos/analyze",
@@ -59,7 +69,15 @@ def test_analyze_status_and_detail_flow(client, monkeypatch):
         assert repo is not None
         repo.status = "ready"
         repo.summary = "summary"
-        db.add(FileNode(repo_id=repo_id, file_path="src/app.py", language="python", line_count=1, import_count=0))
+        db.add(
+            FileNode(
+                repo_id=repo_id,
+                file_path="src/app.py",
+                language="python",
+                line_count=1,
+                import_count=0,
+            )
+        )
         db.add(FileEdge(repo_id=repo_id, source="src/app.py", target="src/utils.py"))
         db.commit()
 
@@ -74,15 +92,24 @@ def test_analyze_status_and_detail_flow(client, monkeypatch):
 
 
 def test_analyze_requires_api_key(client, monkeypatch):
-    monkeypatch.setattr(repos_module.github_service, "parse_repo_url", lambda url: ("octocat", "hello-world"))
-    monkeypatch.setattr(repos_module.github_service, "get_repo_metadata", lambda owner, repo: {"default_branch": "main"})
+    monkeypatch.setattr(
+        repos_module.github_service, "parse_repo_url", lambda url: ("octocat", "hello-world")
+    )
+    monkeypatch.setattr(
+        repos_module.github_service,
+        "get_repo_metadata",
+        lambda owner, repo: {"default_branch": "main"},
+    )
     monkeypatch.setattr(repos_module.repo_rate_limiter, "allow", lambda ip: True)
-    monkeypatch.setattr(repos_module, "_build_repo_analysis_with_timeout", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        repos_module, "_build_repo_analysis_with_timeout", lambda *args, **kwargs: None
+    )
 
-    missing_key_response = client.post("/repos/analyze", json={"github_url": "https://github.com/octocat/hello-world"})
+    missing_key_response = client.post(
+        "/repos/analyze", json={"github_url": "https://github.com/octocat/hello-world"}
+    )
 
-    # API key is no longer required for browser-facing routes; request without key should be allowed
-    assert missing_key_response.status_code == 200
+    assert missing_key_response.status_code == 401
 
 
 def test_analyze_rejects_when_rate_limited(client, monkeypatch):
@@ -114,7 +141,9 @@ def test_resolve_client_ip_ignores_spoofed_forwarded_header_by_default(monkeypat
 def test_resume_pending_repo_analyses_schedules_background_tasks(tmp_path, monkeypatch):
     db_path = tmp_path / "pending.db"
     engine = create_engine(f"sqlite:///{db_path}", connect_args={"check_same_thread": False})
-    test_session_local = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
+    test_session_local = sessionmaker(
+        bind=engine, autoflush=False, autocommit=False, expire_on_commit=False
+    )
 
     monkeypatch.setattr(database_module, "engine", engine)
     monkeypatch.setattr(database_module, "SessionLocal", test_session_local)
@@ -162,7 +191,15 @@ def test_deleting_repository_cascades_to_related_rows(client):
         db.add(repo)
         db.flush()
 
-        db.add(FileNode(repo_id=repo.id, file_path="src/app.py", language="python", line_count=1, import_count=0))
+        db.add(
+            FileNode(
+                repo_id=repo.id,
+                file_path="src/app.py",
+                language="python",
+                line_count=1,
+                import_count=0,
+            )
+        )
         db.add(FileEdge(repo_id=repo.id, source="src/app.py", target="src/utils.py"))
         db.commit()
         repo_id = repo.id
@@ -182,7 +219,9 @@ def test_deleting_repository_cascades_to_related_rows(client):
 def test_resume_pending_repo_analyses_claims_and_skips(tmp_path, monkeypatch):
     db_path = tmp_path / "pending2.db"
     engine = create_engine(f"sqlite:///{db_path}", connect_args={"check_same_thread": False})
-    test_session_local = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
+    test_session_local = sessionmaker(
+        bind=engine, autoflush=False, autocommit=False, expire_on_commit=False
+    )
 
     monkeypatch.setattr(database_module, "engine", engine)
     monkeypatch.setattr(database_module, "SessionLocal", test_session_local)
@@ -236,7 +275,9 @@ def test_resume_pending_repo_analyses_claims_and_skips(tmp_path, monkeypatch):
     monkeypatch.setattr(repos_module.asyncio, "get_running_loop", lambda: FakeTaskLoop())
 
     # ensure reclaim threshold small for test
-    monkeypatch.setattr(repos_module, "settings", repos_module.settings.__class__(RECLAIM_LOCK_AFTER_SECONDS=60))
+    monkeypatch.setattr(
+        repos_module, "settings", repos_module.settings.__class__(RECLAIM_LOCK_AFTER_SECONDS=60)
+    )
 
     repos_module.resume_pending_repo_analyses()
 
