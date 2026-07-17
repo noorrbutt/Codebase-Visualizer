@@ -5,6 +5,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
+from app.api.dependencies import _require_api_key
 from app.database import get_db
 from app.exceptions import AIServiceError
 from app.config import settings
@@ -21,10 +22,14 @@ router = APIRouter(prefix="/files", tags=["files"])
 
 github_service = GithubService()
 ai_service = AIService()
-file_rate_limiter = IPRateLimiter(max_requests=settings.RATE_LIMIT_REQUESTS_PER_MINUTE, window_seconds=60)
+file_rate_limiter = IPRateLimiter(
+    max_requests=settings.RATE_LIMIT_REQUESTS_PER_MINUTE, window_seconds=60
+)
 
 
-@router.post("/analyze", response_model=FileAnalyzeResponse)
+@router.post(
+    "/analyze", response_model=FileAnalyzeResponse, dependencies=[Depends(_require_api_key)]
+)
 async def analyze_file(
     payload: FileAnalyzeRequest,
     db: Session = Depends(get_db),
@@ -41,7 +46,12 @@ async def analyze_file(
     if node is None:
         raise HTTPException(status_code=404, detail="File node not found")
 
-    if node.analyzed_at is not None and node.ai_summary is not None and node.ai_complexity is not None and node.ai_role is not None:
+    if (
+        node.analyzed_at is not None
+        and node.ai_summary is not None
+        and node.ai_complexity is not None
+        and node.ai_role is not None
+    ):
         return FileAnalyzeResponse(
             file_path=node.file_path,
             ai_summary=node.ai_summary,
@@ -53,11 +63,15 @@ async def analyze_file(
     if repo is None:
         raise HTTPException(status_code=404, detail="Repository not found")
 
-    content = github_service.get_file_content(repo.owner, repo.repo_name, repo.default_branch, node.file_path)
+    content = github_service.get_file_content(
+        repo.owner, repo.repo_name, repo.default_branch, node.file_path
+    )
     try:
         analysis = await ai_service.analyze_file(node.file_path, content)
     except AIServiceError as exc:
-        logger.warning("AI analysis unavailable for %s/%s: %s", repo.github_url, node.file_path, exc)
+        logger.warning(
+            "AI analysis unavailable for %s/%s: %s", repo.github_url, node.file_path, exc
+        )
         raise HTTPException(
             status_code=503,
             detail="AI analysis temporarily unavailable. Try again in a few seconds.",
@@ -71,7 +85,9 @@ async def analyze_file(
         db.commit()
     except Exception as exc:
         db.rollback()
-        logger.error("Failed to update analysis for %s/%s: %s", repo.github_url, node.file_path, exc)
+        logger.error(
+            "Failed to update analysis for %s/%s: %s", repo.github_url, node.file_path, exc
+        )
         raise HTTPException(status_code=500, detail="Failed to persist file analysis")
 
     return FileAnalyzeResponse(

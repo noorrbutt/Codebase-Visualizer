@@ -137,10 +137,12 @@ export default function App() {
     const parts = url.replace("https://github.com/", "").split("/");
     setRepoName(parts.slice(0, 2).join("/"));
     try {
-      const res = await fetch(`${API}/repos/analyze`, {
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/repos/analyze`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "X-API-Key": import.meta.env.VITE_API_KEY,
+
         },
         body: JSON.stringify({ github_url: url }),
       });

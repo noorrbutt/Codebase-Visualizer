@@ -8,12 +8,18 @@ from pathlib import Path, PurePosixPath
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
-# keep _require_api_key in dependencies.py for server-to-server routes
+from app.api.dependencies import _require_api_key
 from app.database import SessionLocal, get_db
 from app.models.file_edge import FileEdge as FileEdgeModel
 from app.models.file_node import FileNode
 from app.models.repository import Repository
-from app.schemas.repository import AnalyzeResponse, AnalyzeRequest, FileEdge, FileNodeOut, RepoListItem
+from app.schemas.repository import (
+    AnalyzeResponse,
+    AnalyzeRequest,
+    FileEdge,
+    FileNodeOut,
+    RepoListItem,
+)
 from app.services.ai import AIService
 from app.services.github import GithubService
 from app.services.parser import CodeParser
@@ -27,7 +33,9 @@ router = APIRouter(prefix="/repos", tags=["repositories"])
 github_service = GithubService()
 code_parser = CodeParser()
 ai_service = AIService()
-repo_rate_limiter = IPRateLimiter(max_requests=settings.RATE_LIMIT_REQUESTS_PER_MINUTE, window_seconds=60)
+repo_rate_limiter = IPRateLimiter(
+    max_requests=settings.RATE_LIMIT_REQUESTS_PER_MINUTE, window_seconds=60
+)
 
 
 def _normalize_path_key(file_path: str) -> str:
@@ -38,8 +46,10 @@ def _normalize_path_key(file_path: str) -> str:
     return key
 
 
-def _resolve_relative_import(current_path: str, import_path: str, module_map: dict[str, str]) -> str | None:
-    if not import_path.startswith(('.', '..')):
+def _resolve_relative_import(
+    current_path: str, import_path: str, module_map: dict[str, str]
+) -> str | None:
+    if not import_path.startswith((".", "..")):
         return None
 
     base_dir = Path(current_path).parent
@@ -74,10 +84,10 @@ def _resolve_relative_import(current_path: str, import_path: str, module_map: di
 
 
 def _normalize_import(import_value: str) -> str:
-    if import_value.startswith(('./', '../')):
+    if import_value.startswith(("./", "../")):
         return import_value
-    import_normalized = import_value.replace('/', '.')
-    if import_normalized.endswith(('.js', '.jsx', '.ts', '.tsx', '.py', '.html', '.css', '.md')):
+    import_normalized = import_value.replace("/", ".")
+    if import_normalized.endswith((".js", ".jsx", ".ts", ".tsx", ".py", ".html", ".css", ".md")):
         import_normalized = Path(import_normalized).with_suffix("")
         return ".".join(import_normalized.parts)
     return import_normalized
@@ -145,13 +155,17 @@ async def _build_repo_summary(repo_id: int, repo_name: str, file_paths: list[str
         db.close()
 
 
-async def _build_repo_analysis(repo_id: int, owner: str, repo_name: str, github_url: str, branch: str) -> None:
+async def _build_repo_analysis(
+    repo_id: int, owner: str, repo_name: str, github_url: str, branch: str
+) -> None:
     db = SessionLocal()
     try:
         logger.info("Starting background analysis for repo %s", repo_id)
         tree_items = await asyncio.to_thread(github_service.get_file_tree, owner, repo_name, branch)
         file_paths = [item["path"] for item in tree_items]
-        contents = await asyncio.to_thread(github_service.fetch_files_concurrent, owner, repo_name, branch, file_paths)
+        contents = await asyncio.to_thread(
+            github_service.fetch_files_concurrent, owner, repo_name, branch, file_paths
+        )
 
         parsed_results: dict[str, list[str]] = {}
         node_records: list[FileNode] = []
@@ -180,7 +194,9 @@ async def _build_repo_analysis(repo_id: int, owner: str, repo_name: str, github_
             db.add(node)
 
         edges = _build_edges(parsed_results)
-        edge_records = [FileEdgeModel(repo_id=repo.id, source=edge.source, target=edge.target) for edge in edges]
+        edge_records = [
+            FileEdgeModel(repo_id=repo.id, source=edge.source, target=edge.target) for edge in edges
+        ]
         for edge_record in edge_records:
             db.add(edge_record)
 
@@ -209,9 +225,13 @@ async def _build_repo_analysis(repo_id: int, owner: str, repo_name: str, github_
         db.close()
 
 
-async def _build_repo_analysis_with_timeout(repo_id: int, owner: str, repo_name: str, github_url: str, branch: str) -> None:
+async def _build_repo_analysis_with_timeout(
+    repo_id: int, owner: str, repo_name: str, github_url: str, branch: str
+) -> None:
     try:
-        await asyncio.wait_for(_build_repo_analysis(repo_id, owner, repo_name, github_url, branch), timeout=120)
+        await asyncio.wait_for(
+            _build_repo_analysis(repo_id, owner, repo_name, github_url, branch), timeout=120
+        )
     except asyncio.TimeoutError:
         db = SessionLocal()
         try:
@@ -239,19 +259,34 @@ def resume_pending_repo_analyses() -> None:
                 db.query(Repository)
                 .filter(Repository.id == repo.id, Repository.status == "parsing")
                 .filter((Repository.locked_at.is_(None)) | (Repository.locked_at < cutoff))
-                .update({Repository.locked_at: datetime.utcnow(), Repository.worker_id: worker_id}, synchronize_session=False)
+                .update(
+                    {Repository.locked_at: datetime.utcnow(), Repository.worker_id: worker_id},
+                    synchronize_session=False,
+                )
             )
             if rows:
                 db.commit()
                 try:
                     asyncio.get_running_loop().create_task(
-                        _build_repo_analysis_with_timeout(repo.id, repo.owner, repo.repo_name, repo.github_url, repo.default_branch)
+                        _build_repo_analysis_with_timeout(
+                            repo.id,
+                            repo.owner,
+                            repo.repo_name,
+                            repo.github_url,
+                            repo.default_branch,
+                        )
                     )
                 except RuntimeError:
                     # fallback if called outside of a running loop
                     try:
                         asyncio.get_event_loop().create_task(
-                            _build_repo_analysis_with_timeout(repo.id, repo.owner, repo.repo_name, repo.github_url, repo.default_branch)
+                            _build_repo_analysis_with_timeout(
+                                repo.id,
+                                repo.owner,
+                                repo.repo_name,
+                                repo.github_url,
+                                repo.default_branch,
+                            )
                         )
                     except Exception:
                         logger.exception("Failed to schedule reclaimed repo %s", repo.id)
@@ -270,7 +305,7 @@ def resume_pending_repo_analyses() -> None:
         db.close()
 
 
-@router.post("/analyze", response_model=AnalyzeResponse)
+@router.post("/analyze", response_model=AnalyzeResponse, dependencies=[Depends(_require_api_key)])
 def analyze_repo(
     payload: AnalyzeRequest,
     background_tasks: BackgroundTasks,
@@ -314,10 +349,21 @@ def analyze_repo(
         raise HTTPException(status_code=500, detail="Failed to persist repository data")
 
     try:
-        background_tasks.add_task(_build_repo_analysis_with_timeout, repo.id, owner, repo_name, str(payload.github_url), branch)
+        background_tasks.add_task(
+            _build_repo_analysis_with_timeout,
+            repo.id,
+            owner,
+            repo_name,
+            str(payload.github_url),
+            branch,
+        )
     except Exception as exc:
-        logger.error("Saved repository %s but failed to queue analysis: %s", payload.github_url, exc)
-        raise HTTPException(status_code=500, detail="Repository saved but analysis scheduling failed")
+        logger.error(
+            "Saved repository %s but failed to queue analysis: %s", payload.github_url, exc
+        )
+        raise HTTPException(
+            status_code=500, detail="Repository saved but analysis scheduling failed"
+        )
 
     response = AnalyzeResponse(
         id=repo.id,
@@ -355,6 +401,7 @@ def list_repos(db: Session = Depends(get_db)) -> list[RepoListItem]:
         )
         for repo in repos
     ]
+
 
 @router.get("/{repo_id}", response_model=AnalyzeResponse)
 def get_repo(repo_id: int, db: Session = Depends(get_db)) -> AnalyzeResponse:
