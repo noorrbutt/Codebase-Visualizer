@@ -100,6 +100,8 @@ export default function NodeDetail({ node, edges, repoId, repoOwner, repoName, r
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "X-API-Key": import.meta.env.VITE_API_KEY,
+
         },
         body: JSON.stringify({ repo_id: repoId, file_path: node.path }),
       });
