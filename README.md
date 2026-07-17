@@ -85,7 +85,7 @@ The frontend does not use any shared secret or API key. Browser code is public, 
 - Only public GitHub repositories are supported. Private repositories are not supported by this demo.
 - Public repository analysis is protected by server-side IP rate limiting, not by any frontend-exposed secret.
 - AI requests are throttled and performed in background tasks — analysis of large repositories will take time and may be subject to rate limits.
-- This repository intentionally does not implement authentication, onboarding flows, or team/collaboration features.
+- This repository intentionally does not implement authentication, onboarding flows, or team/collaboration features. All these features will be added once the project is deployed. 
 
 ## License
 
