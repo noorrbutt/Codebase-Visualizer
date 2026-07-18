@@ -89,7 +89,7 @@ export default function ComplexityChart({ nodes, repoId }) {
         }}
       >
         <span style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 12, color: "#9CA3AF" }}>
-          Analyzing complexity…
+        Click a file and run "Analyze" to populate this chart
         </span>
         <span style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 11, color: "#D1D5DB" }}>
           Results appear once AI analysis finishes
