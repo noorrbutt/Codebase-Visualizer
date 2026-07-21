@@ -21,12 +21,14 @@ from app.logging import get_logger
 
 logger = get_logger(__name__)
 
+
 @asynccontextmanager
-async def lifespan(app: FastAPI): 
+async def lifespan(app: FastAPI):
     create_tables()
     logger.info("Database tables ready")
     resume_pending_repo_analyses()
     yield
+
 
 app = FastAPI(
     title="Codebase Visualizer API",
@@ -71,6 +73,39 @@ def handle_ai_service(request: Request, exc: AIServiceError) -> JSONResponse:
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "version": "0.1.0", "env": settings.APP_ENV}
+
+
+@app.get("/health/ready")
+def readiness() -> JSONResponse:
+    checks: dict[str, str] = {}
+    healthy = True
+
+    try:
+        from sqlalchemy import text
+
+        from app.database import engine
+
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        checks["database"] = "ok"
+    except Exception as exc:  # noqa: BLE001
+        healthy = False
+        checks["database"] = f"error: {exc}"
+
+    try:
+        from app.services.redis_client import get_redis_client
+
+        get_redis_client().ping()
+        checks["redis"] = "ok"
+    except Exception as exc:  # noqa: BLE001
+        healthy = False
+        checks["redis"] = f"error: {exc}"
+
+    status_code = 200 if healthy else 503
+    return JSONResponse(
+        status_code=status_code,
+        content={"status": "ok" if healthy else "unavailable", "checks": checks},
+    )
 
 
 app.include_router(repos_router)
