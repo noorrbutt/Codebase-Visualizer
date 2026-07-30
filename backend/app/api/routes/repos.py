@@ -30,12 +30,50 @@ from app.config import settings
 logger = get_logger(__name__)
 router = APIRouter(prefix="/repos", tags=["repositories"])
 
+
+class RepoAnalysisConcurrencyGate:
+    def __init__(self, max_concurrent_analyses: int) -> None:
+        self._max_concurrent_analyses = max_concurrent_analyses
+        self._active_analyses = 0
+        self._lock = asyncio.Lock()
+
+    async def try_acquire(self) -> bool:
+        async with self._lock:
+            if self._active_analyses >= self._max_concurrent_analyses:
+                return False
+            self._active_analyses += 1
+            return True
+
+    async def release(self) -> None:
+        async with self._lock:
+            if self._active_analyses > 0:
+                self._active_analyses -= 1
+
+
 github_service = GithubService()
 code_parser = CodeParser()
 ai_service = AIService()
 repo_rate_limiter = IPRateLimiter(
     max_requests=settings.RATE_LIMIT_REQUESTS_PER_MINUTE, window_seconds=60
 )
+repo_analysis_concurrency_gate: RepoAnalysisConcurrencyGate | None = None
+
+
+def initialize_repo_analysis_concurrency_gate(limit: int | None = None) -> RepoAnalysisConcurrencyGate:
+    global repo_analysis_concurrency_gate
+    effective_limit = limit if limit is not None else settings.MAX_CONCURRENT_REPO_ANALYSES
+    if repo_analysis_concurrency_gate is None or repo_analysis_concurrency_gate._max_concurrent_analyses != effective_limit:
+        repo_analysis_concurrency_gate = RepoAnalysisConcurrencyGate(effective_limit)
+    return repo_analysis_concurrency_gate
+
+
+async def acquire_repo_analysis_slot() -> bool:
+    return await initialize_repo_analysis_concurrency_gate().try_acquire()
+
+
+async def release_repo_analysis_slot() -> None:
+    if repo_analysis_concurrency_gate is not None:
+        await repo_analysis_concurrency_gate.release()
 
 
 def _normalize_path_key(file_path: str) -> str:
@@ -226,9 +264,21 @@ async def _build_repo_analysis(
 
 
 async def _build_repo_analysis_with_timeout(
-    repo_id: int, owner: str, repo_name: str, github_url: str, branch: str
+    repo_id: int,
+    owner: str,
+    repo_name: str,
+    github_url: str,
+    branch: str,
+    slot_preacquired: bool = False,
 ) -> None:
+    slot_acquired = False
     try:
+        if not slot_preacquired:
+            slot_acquired = await acquire_repo_analysis_slot()
+            if not slot_acquired:
+                logger.info("Skipping repo analysis %s because the concurrent cap is already reached", repo_id)
+                return
+
         await asyncio.wait_for(
             _build_repo_analysis(repo_id, owner, repo_name, github_url, branch), timeout=120
         )
@@ -243,6 +293,9 @@ async def _build_repo_analysis_with_timeout(
                 db.commit()
         finally:
             db.close()
+    finally:
+        if slot_preacquired or slot_acquired:
+            await release_repo_analysis_slot()
 
 
 def resume_pending_repo_analyses() -> None:
@@ -306,7 +359,7 @@ def resume_pending_repo_analyses() -> None:
 
 
 @router.post("/analyze", response_model=AnalyzeResponse, dependencies=[Depends(_require_api_key)])
-def analyze_repo(
+async def analyze_repo(
     payload: AnalyzeRequest,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
@@ -315,67 +368,81 @@ def analyze_repo(
     client_ip = IPRateLimiter.resolve_client_ip(request)
     if not repo_rate_limiter.allow(client_ip):
         raise HTTPException(status_code=429, detail="Rate limit exceeded for repository analysis")
-    owner, repo_name = github_service.parse_repo_url(str(payload.github_url))
-    metadata = github_service.get_repo_metadata(owner, repo_name)
-    branch = metadata.get("default_branch", "main")
 
-    repo = Repository(
-        github_url=str(payload.github_url),
-        repo_name=repo_name,
-        owner=owner,
-        default_branch=branch,
-        total_files=0,
-        status="parsing",
-    )
+    if not await acquire_repo_analysis_slot():
+        raise HTTPException(
+            status_code=503,
+            detail="Too many repository analyses are currently running",
+        )
 
-    existing = db.query(Repository).filter(Repository.github_url == str(payload.github_url)).first()
-    if existing and existing.status == "parsing":
-        raise HTTPException(status_code=409, detail="Repository analysis is already in progress")
-
+    slot_acquired = True
     try:
-        if existing:
-            db.query(FileEdgeModel).filter(FileEdgeModel.repo_id == existing.id).delete()
-            db.query(FileNode).filter(FileNode.repo_id == existing.id).delete()
-            db.delete(existing)
+        owner, repo_name = github_service.parse_repo_url(str(payload.github_url))
+        metadata = github_service.get_repo_metadata(owner, repo_name)
+        branch = metadata.get("default_branch", "main")
+
+        repo = Repository(
+            github_url=str(payload.github_url),
+            repo_name=repo_name,
+            owner=owner,
+            default_branch=branch,
+            total_files=0,
+            status="parsing",
+        )
+
+        existing = db.query(Repository).filter(Repository.github_url == str(payload.github_url)).first()
+        if existing and existing.status == "parsing":
+            raise HTTPException(status_code=409, detail="Repository analysis is already in progress")
+
+        try:
+            if existing:
+                db.query(FileEdgeModel).filter(FileEdgeModel.repo_id == existing.id).delete()
+                db.query(FileNode).filter(FileNode.repo_id == existing.id).delete()
+                db.delete(existing)
+                db.flush()
+
+            db.add(repo)
             db.flush()
 
-        db.add(repo)
-        db.flush()
+            db.commit()
+        except Exception as exc:
+            db.rollback()
+            logger.error("Failed to save repository %s: %s", payload.github_url, exc)
+            raise HTTPException(status_code=500, detail="Failed to persist repository data")
 
-        db.commit()
-    except Exception as exc:
-        db.rollback()
-        logger.error("Failed to save repository %s: %s", payload.github_url, exc)
-        raise HTTPException(status_code=500, detail="Failed to persist repository data")
+        try:
+            background_tasks.add_task(
+                _build_repo_analysis_with_timeout,
+                repo.id,
+                owner,
+                repo_name,
+                str(payload.github_url),
+                branch,
+                True,
+            )
+        except Exception as exc:
+            logger.error(
+                "Saved repository %s but failed to queue analysis: %s", payload.github_url, exc
+            )
+            raise HTTPException(
+                status_code=500, detail="Repository saved but analysis scheduling failed"
+            )
 
-    try:
-        background_tasks.add_task(
-            _build_repo_analysis_with_timeout,
-            repo.id,
-            owner,
-            repo_name,
-            str(payload.github_url),
-            branch,
+        response = AnalyzeResponse(
+            id=repo.id,
+            repo_name=repo.repo_name,
+            owner=repo.owner,
+            default_branch=repo.default_branch,
+            status=repo.status,
+            summary=repo.summary,
+            nodes=[],
+            edges=[],
         )
-    except Exception as exc:
-        logger.error(
-            "Saved repository %s but failed to queue analysis: %s", payload.github_url, exc
-        )
-        raise HTTPException(
-            status_code=500, detail="Repository saved but analysis scheduling failed"
-        )
-
-    response = AnalyzeResponse(
-        id=repo.id,
-        repo_name=repo.repo_name,
-        owner=repo.owner,
-        default_branch=repo.default_branch,
-        status=repo.status,
-        summary=repo.summary,
-        nodes=[],
-        edges=[],
-    )
-    return response
+        return response
+    except Exception:
+        if slot_acquired:
+            await release_repo_analysis_slot()
+        raise
 
 
 @router.get("/{repo_id}/status")

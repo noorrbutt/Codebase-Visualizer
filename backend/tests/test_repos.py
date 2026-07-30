@@ -131,6 +131,22 @@ def test_analyze_rejects_when_rate_limited(client, monkeypatch):
     assert response.status_code == 429
 
 
+def test_analyze_rejects_when_concurrency_cap_is_exhausted(client, monkeypatch):
+    async def reject_acquire() -> bool:
+        return False
+
+    monkeypatch.setattr(repos_module, "acquire_repo_analysis_slot", reject_acquire)
+    monkeypatch.setattr(repos_module.repo_rate_limiter, "allow", lambda ip: True)
+
+    response = client.post(
+        "/repos/analyze",
+        json={"github_url": "https://github.com/octocat/hello-world"},
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Too many repository analyses are currently running"
+
+
 def test_resolve_client_ip_ignores_spoofed_forwarded_header_by_default(monkeypatch):
     monkeypatch.setattr(rate_limit_module.settings, "TRUST_PROXY_HEADERS", False)
 
