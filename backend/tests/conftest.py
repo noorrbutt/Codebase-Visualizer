@@ -6,13 +6,14 @@ import pytest
 class InMemoryRedis:
     """A minimal dict-based Redis-like stub for tests.
 
-    Supports `incr`, `expire`, `get`, and a test-only `advance` to move time forward.
-    Keys expire based on the TTL set with `expire`.
+    Supports `incr`, `expire`, `get`, sorted-set helpers, and a test-only `advance`
+    to move time forward. Keys expire based on the TTL set with `expire`.
     """
 
     def __init__(self) -> None:
         self.values: dict[str, int] = {}
         self.expirations: dict[str, float] = {}
+        self.sorted_sets: dict[str, dict[str, float]] = {}
         # internal clock (float seconds since epoch) so tests can advance time
         self._now = time.time()
 
@@ -44,6 +45,25 @@ class InMemoryRedis:
 
         value = self.values.get(key)
         return None if value is None else str(value)
+
+    def zadd(self, key: str, mapping: dict[str, float]) -> int:
+        entries = self.sorted_sets.setdefault(key, {})
+        for member, score in mapping.items():
+            entries[str(member)] = float(score)
+        return len(mapping)
+
+    def zremrangebyscore(self, key: str, min_score: float, max_score: float) -> int:
+        entries = self.sorted_sets.get(key)
+        if not entries:
+            return 0
+
+        to_remove = [member for member, score in entries.items() if score <= max_score]
+        for member in to_remove:
+            entries.pop(member, None)
+        return len(to_remove)
+
+    def zcard(self, key: str) -> int:
+        return len(self.sorted_sets.get(key, {}))
 
     # test helper to move the internal clock forward
     def advance(self, seconds: int) -> None:

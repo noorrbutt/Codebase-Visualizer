@@ -46,6 +46,7 @@ class FakeRedis:
     def __init__(self):
         self.values: dict[str, int] = {}
         self.expirations: dict[str, int] = {}
+        self.sorted_sets: dict[str, dict[str, float]] = {}
 
     def incr(self, key: str) -> int:
         self.values[key] = self.values.get(key, 0) + 1
@@ -58,6 +59,25 @@ class FakeRedis:
     def get(self, key: str):
         value = self.values.get(key)
         return None if value is None else str(value)
+
+    def zadd(self, key: str, mapping: dict[str, float]) -> int:
+        entries = self.sorted_sets.setdefault(key, {})
+        for member, score in mapping.items():
+            entries[str(member)] = float(score)
+        return len(mapping)
+
+    def zremrangebyscore(self, key: str, min_score: float, max_score: float) -> int:
+        entries = self.sorted_sets.get(key)
+        if not entries:
+            return 0
+
+        to_remove = [member for member, score in entries.items() if score <= max_score]
+        for member in to_remove:
+            entries.pop(member, None)
+        return len(to_remove)
+
+    def zcard(self, key: str) -> int:
+        return len(self.sorted_sets.get(key, {}))
 
 
 class DummyGroqCompletions:
@@ -96,12 +116,28 @@ def test_github_service_caps_large_file_tree(monkeypatch):
     assert capped_files[-1]["path"] == "src/file_299.py"
 
 
-def test_rate_limiter_blocks_excess_requests():
-    limiter = IPRateLimiter(max_requests=2, window_seconds=60, redis_client=FakeRedis())
+def test_rate_limiter_allows_exact_limit_and_rejects_next(monkeypatch):
+    fake_redis = FakeRedis()
+    monkeypatch.setattr("app.services.rate_limit.time.time", lambda: 1000)
+    limiter = IPRateLimiter(max_requests=2, window_seconds=60, redis_client=fake_redis)
 
     assert limiter.allow("203.0.113.1") is True
     assert limiter.allow("203.0.113.1") is True
     assert limiter.allow("203.0.113.1") is False
+
+
+def test_rate_limiter_window_expiry_allows_new_requests(monkeypatch):
+    fake_redis = FakeRedis()
+    current_time = [1000]
+    monkeypatch.setattr("app.services.rate_limit.time.time", lambda: current_time[0])
+    limiter = IPRateLimiter(max_requests=2, window_seconds=5, redis_client=fake_redis)
+
+    assert limiter.allow("203.0.113.2") is True
+    assert limiter.allow("203.0.113.2") is True
+
+    current_time[0] += 6
+
+    assert limiter.allow("203.0.113.2") is True
 
 
 def test_rate_limiter_uses_forwarded_for_header(monkeypatch):

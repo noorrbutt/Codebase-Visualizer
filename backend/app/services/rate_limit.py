@@ -37,18 +37,16 @@ class IPRateLimiter:
     def allow(self, ip_address: str) -> bool:
         now = int(time.time())
         redis_client = self._get_redis_client()
-        key_prefix = f"rate_limit:{ip_address}:"
+        key = f"rate_limit:{ip_address}"
 
-        current_key = f"{key_prefix}{now}"
-        request_count = int(redis_client.incr(current_key))
-        if request_count == 1:
-            redis_client.expire(current_key, self.window_seconds + 1)
+        cutoff = now - self.window_seconds
+        redis_client.zremrangebyscore(key, float("-inf"), cutoff)
+        request_count = int(redis_client.zcard(key))
 
-        window_total = 0
-        for offset in range(self.window_seconds):
-            bucket_key = f"{key_prefix}{now - offset}"
-            value = redis_client.get(bucket_key)
-            if value is not None:
-                window_total += int(value)
+        if request_count >= self.max_requests:
+            return False
 
-        return window_total <= self.max_requests
+        member = f"{now}:{time.time_ns()}"
+        redis_client.zadd(key, {member: float(now)})
+        redis_client.expire(key, self.window_seconds + 1)
+        return True
