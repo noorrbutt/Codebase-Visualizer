@@ -39,6 +39,16 @@ def client(tmp_path, monkeypatch):
         yield test_client
 
 
+def test_cors_allows_configured_frontend_origin(client):
+    response = client.get(
+        "/health",
+        headers={"Origin": "http://localhost:5173"},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://localhost:5173"
+
+
 def test_analyze_status_and_detail_flow(client, monkeypatch):
     monkeypatch.setattr(
         repos_module.github_service, "parse_repo_url", lambda url: ("octocat", "hello-world")
