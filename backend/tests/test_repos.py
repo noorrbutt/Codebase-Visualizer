@@ -31,7 +31,6 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(main_module, "create_tables", lambda: Base.metadata.create_all(bind=engine))
     monkeypatch.setattr(main_module.settings, "API_KEY", "test-api-key")
     monkeypatch.setattr(repos_module.settings, "API_KEY", "test-api-key")
-    monkeypatch.setattr(dependencies_module.settings, "API_KEY", "test-api-key", raising=False)
 
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
@@ -56,7 +55,6 @@ def test_analyze_status_and_detail_flow(client, monkeypatch):
 
     response = client.post(
         "/repos/analyze",
-        headers={"X-API-Key": "test-api-key"},
         json={"github_url": "https://github.com/octocat/hello-world"},
     )
 
@@ -91,7 +89,7 @@ def test_analyze_status_and_detail_flow(client, monkeypatch):
     assert detail_response.json()["edges"][0]["source"] == "src/app.py"
 
 
-def test_analyze_requires_api_key(client, monkeypatch):
+def test_analyze_does_not_require_api_key(client, monkeypatch):
     monkeypatch.setattr(
         repos_module.github_service, "parse_repo_url", lambda url: ("octocat", "hello-world")
     )
@@ -109,7 +107,7 @@ def test_analyze_requires_api_key(client, monkeypatch):
         "/repos/analyze", json={"github_url": "https://github.com/octocat/hello-world"}
     )
 
-    assert missing_key_response.status_code == 401
+    assert missing_key_response.status_code == 200
 
 
 def test_analyze_rejects_when_rate_limited(client, monkeypatch):
@@ -117,7 +115,6 @@ def test_analyze_rejects_when_rate_limited(client, monkeypatch):
 
     response = client.post(
         "/repos/analyze",
-        headers={"X-API-Key": "test-api-key"},
         json={"github_url": "https://github.com/octocat/hello-world"},
     )
 

@@ -137,16 +137,10 @@ def test_ai_service_uses_redis_budgets(monkeypatch):
         second_service.ensure_budget_available()
 
 
-def test_repo_api_key_dependency(monkeypatch):
-    monkeypatch.setattr(settings, "API_KEY", "secret-token")
-
-    _require_api_key("secret-token")
-
-    with pytest.raises(HTTPException):
-        _require_api_key(None)
-
-    with pytest.raises(HTTPException):
-        _require_api_key("wrong-token")
+def test_repo_api_key_dependency():
+    assert _require_api_key() is None
+    assert _require_api_key("secret-token") is None
+    assert _require_api_key("wrong-token") is None
 
 
 def test_ai_service_retries_with_async_sleep_and_timeout(monkeypatch):
