@@ -21,6 +21,7 @@ from app.schemas.repository import (
     RepoListItem,
 )
 from app.services.ai import AIService
+from app.services.coordination import RedisConcurrencyGate, RedisMutex
 from app.services.github import GithubService
 from app.services.parser import CodeParser
 from app.services.rate_limit import IPRateLimiter
@@ -31,40 +32,24 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/repos", tags=["repositories"])
 
 
-class RepoAnalysisConcurrencyGate:
-    def __init__(self, max_concurrent_analyses: int) -> None:
-        self._max_concurrent_analyses = max_concurrent_analyses
-        self._active_analyses = 0
-        self._lock = asyncio.Lock()
-
-    async def try_acquire(self) -> bool:
-        async with self._lock:
-            if self._active_analyses >= self._max_concurrent_analyses:
-                return False
-            self._active_analyses += 1
-            return True
-
-    async def release(self) -> None:
-        async with self._lock:
-            if self._active_analyses > 0:
-                self._active_analyses -= 1
-
-
 github_service = GithubService()
 code_parser = CodeParser()
 ai_service = AIService()
 repo_rate_limiter = IPRateLimiter(
     max_requests=settings.RATE_LIMIT_REQUESTS_PER_MINUTE, window_seconds=60
 )
-repo_analysis_concurrency_gate: RepoAnalysisConcurrencyGate | None = None
-repo_request_locks: dict[str, asyncio.Lock] = {}
+# Both structures below are Redis-backed (see app/services/coordination.py) so
+# the concurrency cap and per-repo locking hold across process restarts and
+# multiple instances, not just within one running process.
+repo_analysis_concurrency_gate: RedisConcurrencyGate | None = None
+repo_lock_manager = RedisMutex(key_prefix="repo_lock", ttl_seconds=settings.RECLAIM_LOCK_AFTER_SECONDS)
 
 
-def initialize_repo_analysis_concurrency_gate(limit: int | None = None) -> RepoAnalysisConcurrencyGate:
+def initialize_repo_analysis_concurrency_gate(limit: int | None = None) -> RedisConcurrencyGate:
     global repo_analysis_concurrency_gate
     effective_limit = limit if limit is not None else settings.MAX_CONCURRENT_REPO_ANALYSES
     if repo_analysis_concurrency_gate is None or repo_analysis_concurrency_gate._max_concurrent_analyses != effective_limit:
-        repo_analysis_concurrency_gate = RepoAnalysisConcurrencyGate(effective_limit)
+        repo_analysis_concurrency_gate = RedisConcurrencyGate(effective_limit)
     return repo_analysis_concurrency_gate
 
 
@@ -407,8 +392,11 @@ async def analyze_repo(
         raise HTTPException(status_code=429, detail="Rate limit exceeded for repository analysis")
 
     repo_key = str(payload.github_url)
-    repo_lock = repo_request_locks.setdefault(repo_key, asyncio.Lock())
-    await repo_lock.acquire()
+    lock_token = await repo_lock_manager.acquire(repo_key)
+    if lock_token is None:
+        raise HTTPException(
+            status_code=409, detail="Repository analysis is already in progress"
+        )
 
     slot_acquired = False
     try:
@@ -495,7 +483,7 @@ async def analyze_repo(
             await release_repo_analysis_slot()
         raise
     finally:
-        repo_lock.release()
+        await repo_lock_manager.release(repo_key, lock_token)
 
 
 @router.get("/{repo_id}/status")
