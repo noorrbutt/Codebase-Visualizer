@@ -16,6 +16,8 @@ from app.models.file_edge import FileEdge
 from app.models.file_node import FileNode
 from app.models.repository import Repository
 from app.main import app
+from app.services.coordination import RedisConcurrencyGate, RedisMutex
+from tests.conftest import InMemoryRedis
 
 
 @pytest.fixture()
@@ -33,6 +35,24 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(main_module.settings, "API_KEY", "test-api-key")
     monkeypatch.setattr(repos_module.settings, "API_KEY", "test-api-key")
 
+    # Coordination (concurrency gate + per-repo mutex) is Redis-backed in
+    # production; swap in the same in-memory fake used elsewhere in this
+    # suite so tests don't need a real Redis server.
+    fake_redis = InMemoryRedis()
+    monkeypatch.setattr(
+        repos_module,
+        "repo_analysis_concurrency_gate",
+        RedisConcurrencyGate(repos_module.settings.MAX_CONCURRENT_REPO_ANALYSES, redis_client=fake_redis),
+    )
+    monkeypatch.setattr(
+        repos_module,
+        "repo_lock_manager",
+        RedisMutex(
+            key_prefix="repo_lock",
+            ttl_seconds=repos_module.settings.RECLAIM_LOCK_AFTER_SECONDS,
+            redis_client=fake_redis,
+        ),
+    )
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
 

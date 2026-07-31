@@ -65,6 +65,30 @@ class InMemoryRedis:
     def zcard(self, key: str) -> int:
         return len(self.sorted_sets.get(key, {}))
 
+    def zrem(self, key: str, member: str) -> int:
+        entries = self.sorted_sets.get(key)
+        if not entries or str(member) not in entries:
+            return 0
+        del entries[str(member)]
+        return 1
+
+    def set(self, key: str, value, nx: bool = False, ex: int | None = None) -> bool:
+        if nx and not self._is_expired(key) and key in self.values:
+            return False
+
+        self.values[key] = value
+        if ex is not None:
+            self.expire(key, ex)
+        else:
+            self.expirations.pop(key, None)
+        return True
+
+    def delete(self, key: str) -> int:
+        existed = key in self.values
+        self.values.pop(key, None)
+        self.expirations.pop(key, None)
+        return 1 if existed else 0
+
     # test helper to move the internal clock forward
     def advance(self, seconds: int) -> None:
         self._now += seconds

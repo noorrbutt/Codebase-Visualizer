@@ -51,6 +51,9 @@ def initialize_repo_analysis_concurrency_gate(limit: int | None = None) -> Redis
     if repo_analysis_concurrency_gate is None or repo_analysis_concurrency_gate._max_concurrent_analyses != effective_limit:
         repo_analysis_concurrency_gate = RedisConcurrencyGate(effective_limit)
     return repo_analysis_concurrency_gate
+# Tests inject a fake Redis client by monkeypatching repo_analysis_concurrency_gate
+# and repo_lock_manager directly (see tests/test_repos.py), the same way
+# tests/test_protection_limits.py injects one into IPRateLimiter/AIService.
 
 
 async def acquire_repo_analysis_slot() -> bool:
