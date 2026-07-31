@@ -67,10 +67,14 @@ async def analyze_file(
         repo.owner, repo.repo_name, repo.default_branch, node.file_path
     )
     try:
-        analysis = await ai_service.analyze_file(node.file_path, content)
+        analysis = await ai_service.analyze_file(node.file_path, content, client_ip=client_ip)
     except AIServiceError as exc:
         logger.warning(
-            "AI analysis unavailable for %s/%s: %s", repo.github_url, node.file_path, exc
+            "AI analysis unavailable for client %s on %s/%s: %s",
+            client_ip,
+            repo.github_url,
+            node.file_path,
+            exc,
         )
         raise HTTPException(
             status_code=503,

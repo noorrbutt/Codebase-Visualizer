@@ -170,10 +170,20 @@ def _normalize_file_records(file_nodes: list[FileNode]) -> list[FileNodeOut]:
     ]
 
 
-async def _build_repo_summary(repo_id: int, repo_name: str, file_paths: list[str]) -> None:
+async def _build_repo_summary(
+    repo_id: int,
+    repo_name: str,
+    file_paths: list[str],
+    client_ip: str | None = None,
+) -> None:
     db = SessionLocal()
     try:
-        summary = await asyncio.to_thread(ai_service.generate_repo_summary, repo_name, file_paths)
+        summary = await asyncio.to_thread(
+            ai_service.generate_repo_summary,
+            repo_name,
+            file_paths,
+            client_ip=client_ip,
+        )
         repo = db.get(Repository, repo_id)
         if repo is None:
             return
@@ -194,7 +204,12 @@ async def _build_repo_summary(repo_id: int, repo_name: str, file_paths: list[str
 
 
 async def _build_repo_analysis(
-    repo_id: int, owner: str, repo_name: str, github_url: str, branch: str
+    repo_id: int,
+    owner: str,
+    repo_name: str,
+    github_url: str,
+    branch: str,
+    client_ip: str | None = None,
 ) -> None:
     db = SessionLocal()
     try:
@@ -242,7 +257,12 @@ async def _build_repo_analysis(
         repo.status = "parsing"
         db.commit()
 
-        summary = await asyncio.to_thread(ai_service.generate_repo_summary, repo_name, file_paths)
+        summary = await asyncio.to_thread(
+            ai_service.generate_repo_summary,
+            repo_name,
+            file_paths,
+            client_ip=client_ip,
+        )
         repo.summary = summary
         repo.status = "ready"
         # clear any claim information now that analysis completed
@@ -270,6 +290,7 @@ async def _build_repo_analysis_with_timeout(
     github_url: str,
     branch: str,
     slot_preacquired: bool = False,
+    client_ip: str | None = None,
 ) -> None:
     slot_acquired = False
     try:
@@ -280,7 +301,8 @@ async def _build_repo_analysis_with_timeout(
                 return
 
         await asyncio.wait_for(
-            _build_repo_analysis(repo_id, owner, repo_name, github_url, branch), timeout=120
+            _build_repo_analysis(repo_id, owner, repo_name, github_url, branch, client_ip=client_ip),
+            timeout=120,
         )
     except asyncio.TimeoutError:
         db = SessionLocal()
@@ -418,6 +440,7 @@ async def analyze_repo(
                 str(payload.github_url),
                 branch,
                 True,
+                client_ip,
             )
         except Exception as exc:
             logger.error(

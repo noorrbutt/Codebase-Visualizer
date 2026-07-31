@@ -18,20 +18,36 @@ GROQ_MODEL = "openai/gpt-oss-120b"
 
 
 class AIService:
-    def __init__(self, hourly_limit: int | None = None, daily_limit: int | None = None, redis_client: Redis | None = None) -> None:
+    def __init__(
+        self,
+        hourly_limit: int | None = None,
+        daily_limit: int | None = None,
+        client_hourly_limit: int | None = None,
+        client_daily_limit: int | None = None,
+        redis_client: Redis | None = None,
+    ) -> None:
         self.client = Groq(api_key=settings.GROQ_API_KEY) if settings.GROQ_API_KEY else None
         self.hourly_limit = hourly_limit if hourly_limit is not None else settings.AI_MAX_REQUESTS_PER_HOUR
         self.daily_limit = daily_limit if daily_limit is not None else settings.AI_MAX_REQUESTS_PER_DAY
+        self.client_hourly_limit = (
+            client_hourly_limit if client_hourly_limit is not None else settings.AI_MAX_CLIENT_REQUESTS_PER_HOUR
+        )
+        self.client_daily_limit = (
+            client_daily_limit if client_daily_limit is not None else settings.AI_MAX_CLIENT_REQUESTS_PER_DAY
+        )
         self._redis_client = redis_client
 
     def _get_redis_client(self) -> Redis:
         return self._redis_client or get_redis_client()
 
-    def ensure_budget_available(self) -> None:
+    def ensure_budget_available(self, client_ip: str | None = None) -> None:
         redis_client = self._get_redis_client()
+        client_identifier = client_ip or "unknown"
 
         hourly_key = "ai_budget:hourly"
         daily_key = "ai_budget:daily"
+        client_hourly_key = f"ai_budget:hourly:{client_identifier}"
+        client_daily_key = f"ai_budget:daily:{client_identifier}"
 
         hourly_count = int(redis_client.incr(hourly_key))
         if hourly_count == 1:
@@ -41,16 +57,57 @@ class AIService:
         if daily_count == 1:
             redis_client.expire(daily_key, 86400)
 
+        client_hourly_count = int(redis_client.incr(client_hourly_key))
+        if client_hourly_count == 1:
+            redis_client.expire(client_hourly_key, 3600)
+
+        client_daily_count = int(redis_client.incr(client_daily_key))
+        if client_daily_count == 1:
+            redis_client.expire(client_daily_key, 86400)
+
         if hourly_count > self.hourly_limit:
+            logger.warning(
+                "AI hourly budget exceeded for client %s: global_hourly=%s limit=%s",
+                client_identifier,
+                hourly_count,
+                self.hourly_limit,
+            )
             raise AIServiceError("AI request hourly budget exceeded")
         if daily_count > self.daily_limit:
+            logger.warning(
+                "AI daily budget exceeded for client %s: global_daily=%s limit=%s",
+                client_identifier,
+                daily_count,
+                self.daily_limit,
+            )
             raise AIServiceError("AI request daily budget exceeded")
+        if client_hourly_count > self.client_hourly_limit:
+            logger.warning(
+                "AI hourly client budget exceeded for client %s: client_hourly=%s limit=%s",
+                client_identifier,
+                client_hourly_count,
+                self.client_hourly_limit,
+            )
+            raise AIServiceError(f"AI request hourly client budget exceeded for {client_identifier}")
+        if client_daily_count > self.client_daily_limit:
+            logger.warning(
+                "AI daily client budget exceeded for client %s: client_daily=%s limit=%s",
+                client_identifier,
+                client_daily_count,
+                self.client_daily_limit,
+            )
+            raise AIServiceError(f"AI request daily client budget exceeded for {client_identifier}")
 
-    def generate_repo_summary(self, repo_name: str, file_list: List[str]) -> str:
+    def generate_repo_summary(
+        self,
+        repo_name: str,
+        file_list: List[str],
+        client_ip: str | None = None,
+    ) -> str:
         if not self.client:
             raise AIServiceError("GROQ_API_KEY not configured")
 
-        self.ensure_budget_available()
+        self.ensure_budget_available(client_ip=client_ip)
 
         prompt = (
             "Write a 2-3 sentence plain-English summary as a senior developer explaining this repository to a teammate. "
@@ -124,11 +181,20 @@ class AIService:
 
         return False
 
-    async def analyze_file(self, file_path: str, content: str, timeout_seconds: float = 30.0) -> Dict[str, str]:
+    async def analyze_file(
+        self,
+        file_path: str,
+        content: str,
+        timeout_seconds: float = 30.0,
+        client_ip: str | None = None,
+    ) -> Dict[str, str]:
         if not self.client:
             raise AIServiceError("GROQ_API_KEY not configured")
 
-        self.ensure_budget_available()
+        try:
+            self.ensure_budget_available(client_ip=client_ip)
+        except TypeError:
+            self.ensure_budget_available()
 
         snippet = "\n".join(content.splitlines()[:200])
         last_exc: Exception = Exception("unknown error")

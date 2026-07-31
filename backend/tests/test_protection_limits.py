@@ -160,6 +160,37 @@ def test_ai_service_enforces_budget_limits():
         service.ensure_budget_available()
 
 
+def test_ai_service_global_budget_exceeded_even_with_new_client_ip():
+    service = AIService(
+        hourly_limit=2,
+        daily_limit=100,
+        client_hourly_limit=1,
+        client_daily_limit=100,
+        redis_client=FakeRedis(),
+    )
+
+    service.ensure_budget_available(client_ip="198.51.100.7")
+    service.ensure_budget_available(client_ip="198.51.100.8")
+
+    with pytest.raises(AIServiceError, match="hourly budget exceeded"):
+        service.ensure_budget_available(client_ip="198.51.100.9")
+
+
+def test_ai_service_client_budget_exceeded_while_global_budget_has_room():
+    service = AIService(
+        hourly_limit=10,
+        daily_limit=100,
+        client_hourly_limit=1,
+        client_daily_limit=100,
+        redis_client=FakeRedis(),
+    )
+
+    service.ensure_budget_available(client_ip="198.51.100.7")
+
+    with pytest.raises(AIServiceError, match="client"):
+        service.ensure_budget_available(client_ip="198.51.100.7")
+
+
 def test_ai_service_uses_redis_budgets(monkeypatch):
     fake_redis = FakeRedis()
     monkeypatch.setattr(ai_module, "get_redis_client", lambda: fake_redis)
