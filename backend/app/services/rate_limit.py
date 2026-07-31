@@ -35,18 +35,19 @@ class IPRateLimiter:
         return self._redis_client or get_redis_client()
 
     def allow(self, ip_address: str) -> bool:
-        now = int(time.time())
+        """Fixed-window counter: O(1) redis ops per call.
+
+        Requests are bucketed into non-overlapping windows of size
+        `window_seconds`. Each bucket has its own counter key that expires
+        on its own, so there is no need to scan or sum multiple keys.
+        """
+        now = time.time()
+        window_id = int(now // self.window_seconds)
         redis_client = self._get_redis_client()
-        key = f"rate_limit:{ip_address}"
+        key = f"rate_limit:{ip_address}:{window_id}"
 
-        cutoff = now - self.window_seconds
-        redis_client.zremrangebyscore(key, float("-inf"), cutoff)
-        request_count = int(redis_client.zcard(key))
+        count = int(redis_client.incr(key))
+        if count == 1:
+            redis_client.expire(key, self.window_seconds + 1)
 
-        if request_count >= self.max_requests:
-            return False
-
-        member = f"{now}:{time.time_ns()}"
-        redis_client.zadd(key, {member: float(now)})
-        redis_client.expire(key, self.window_seconds + 1)
-        return True
+        return count <= self.max_requests

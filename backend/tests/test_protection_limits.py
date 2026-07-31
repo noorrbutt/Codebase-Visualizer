@@ -331,3 +331,15 @@ def test_ip_rate_limiter_burst_within_same_second(fake_redis):
 
     results = [limiter.allow("203.0.113.10") for _ in range(3)]
     assert results == [True, True, False]
+
+def zremrangebyscore(self, key, min_score, max_score):
+    members = self.sorted_sets.get(key, {})
+    to_remove = [m for m, s in members.items() if min_score <= s <= max_score]
+    for m in to_remove:
+        del members[m]
+
+def zcard(self, key):
+    return len(self.sorted_sets.get(key, {}))
+
+def zadd(self, key, mapping):
+    self.sorted_sets.setdefault(key, {}).update(mapping)

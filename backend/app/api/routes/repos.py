@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path, PurePosixPath
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
@@ -305,7 +305,7 @@ def resume_pending_repo_analyses() -> None:
         reclaimed = 0
         skipped = 0
         worker_id = uuid.uuid4().hex
-        cutoff = datetime.utcnow() - timedelta(seconds=settings.RECLAIM_LOCK_AFTER_SECONDS)
+        cutoff = datetime.now(timezone.utc) - timedelta(seconds=settings.RECLAIM_LOCK_AFTER_SECONDS)
 
         for repo in pending_repos:
             rows = (
@@ -313,8 +313,7 @@ def resume_pending_repo_analyses() -> None:
                 .filter(Repository.id == repo.id, Repository.status == "parsing")
                 .filter((Repository.locked_at.is_(None)) | (Repository.locked_at < cutoff))
                 .update(
-                    {Repository.locked_at: datetime.utcnow(), Repository.worker_id: worker_id},
-                    synchronize_session=False,
+                        {Repository.locked_at: datetime.now(timezone.utc), Repository.worker_id: worker_id},                    synchronize_session=False,
                 )
             )
             if rows:
