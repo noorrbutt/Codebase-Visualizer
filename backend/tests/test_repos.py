@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -118,6 +120,64 @@ def test_analyze_does_not_require_api_key(client, monkeypatch):
     )
 
     assert missing_key_response.status_code == 200
+
+
+def test_analyze_claims_repo_lock_before_background_work(client, monkeypatch):
+    monkeypatch.setattr(
+        repos_module.github_service, "parse_repo_url", lambda url: ("octocat", "hello-world")
+    )
+    monkeypatch.setattr(
+        repos_module.github_service,
+        "get_repo_metadata",
+        lambda owner, repo: {"default_branch": "main"},
+    )
+    monkeypatch.setattr(repos_module.repo_rate_limiter, "allow", lambda ip: True)
+    monkeypatch.setattr(
+        repos_module, "_build_repo_analysis_with_timeout", lambda *args, **kwargs: None
+    )
+
+    response = client.post(
+        "/repos/analyze",
+        json={"github_url": "https://github.com/octocat/hello-world"},
+    )
+
+    assert response.status_code == 200
+
+    with database_module.SessionLocal() as db:
+        repo = db.query(Repository).filter(Repository.github_url == "https://github.com/octocat/hello-world").first()
+        assert repo is not None
+        assert repo.locked_at is not None
+        assert repo.worker_id is not None
+        assert repo.status == "parsing"
+
+
+def test_analyze_rejects_duplicate_in_progress_request_for_same_repo(client, monkeypatch):
+    monkeypatch.setattr(
+        repos_module.github_service, "parse_repo_url", lambda url: ("octocat", "hello-world")
+    )
+    monkeypatch.setattr(
+        repos_module.github_service,
+        "get_repo_metadata",
+        lambda owner, repo: {"default_branch": "main"},
+    )
+    monkeypatch.setattr(repos_module.repo_rate_limiter, "allow", lambda ip: True)
+    monkeypatch.setattr(
+        repos_module, "_build_repo_analysis_with_timeout", lambda *args, **kwargs: None
+    )
+
+    first_response = client.post(
+        "/repos/analyze",
+        json={"github_url": "https://github.com/octocat/hello-world"},
+    )
+    assert first_response.status_code == 200
+
+    second_response = client.post(
+        "/repos/analyze",
+        json={"github_url": "https://github.com/octocat/hello-world"},
+    )
+
+    assert second_response.status_code == 409
+    assert second_response.json()["detail"] == "Repository analysis is already in progress"
 
 
 def test_analyze_rejects_when_rate_limited(client, monkeypatch):
@@ -252,8 +312,6 @@ def test_resume_pending_repo_analyses_claims_and_skips(tmp_path, monkeypatch):
 
     Base.metadata.create_all(bind=engine)
 
-    from datetime import datetime, timedelta
-
     with test_session_local() as db:
         stale_time = datetime.utcnow() - timedelta(seconds=1000)
         fresh_time = datetime.utcnow()
@@ -306,3 +364,60 @@ def test_resume_pending_repo_analyses_claims_and_skips(tmp_path, monkeypatch):
 
     # only the stale record should have been scheduled
     assert len(scheduled) == 1
+
+
+def test_resume_pending_repo_analyses_reclaims_crashed_worker_lock_after_timeout(
+    tmp_path, monkeypatch
+):
+    db_path = tmp_path / "pending-crash.db"
+    engine = create_engine(f"sqlite:///{db_path}", connect_args={"check_same_thread": False})
+    test_session_local = sessionmaker(
+        bind=engine, autoflush=False, autocommit=False, expire_on_commit=False
+    )
+
+    monkeypatch.setattr(database_module, "engine", engine)
+    monkeypatch.setattr(database_module, "SessionLocal", test_session_local)
+    monkeypatch.setattr(repos_module, "SessionLocal", test_session_local)
+    monkeypatch.setattr(
+        repos_module,
+        "settings",
+        repos_module.settings.__class__(RECLAIM_LOCK_AFTER_SECONDS=1),
+    )
+
+    Base.metadata.create_all(bind=engine)
+
+    stale_time = datetime.now(timezone.utc) - timedelta(seconds=5)
+
+    with test_session_local() as db:
+        db.add(
+            Repository(
+                github_url="https://github.com/octocat/crashed",
+                repo_name="crashed",
+                owner="octocat",
+                default_branch="main",
+                total_files=0,
+                status="parsing",
+                locked_at=stale_time,
+                worker_id="crashed-worker",
+            )
+        )
+        db.commit()
+
+    scheduled: list[tuple] = []
+
+    class FakeTaskLoop:
+        def create_task(self, coro):
+            coro.close()
+            scheduled.append(coro)
+
+    monkeypatch.setattr(repos_module.asyncio, "get_running_loop", lambda: FakeTaskLoop())
+
+    repos_module.resume_pending_repo_analyses()
+
+    assert len(scheduled) == 1
+
+    with test_session_local() as db:
+        repo = db.query(Repository).filter(Repository.github_url == "https://github.com/octocat/crashed").first()
+        assert repo is not None
+        assert repo.locked_at is not None
+        assert repo.worker_id != "crashed-worker"
