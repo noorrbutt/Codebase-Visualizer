@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import re
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timezone
 from urllib.parse import urlparse
 
 import requests
@@ -19,11 +21,77 @@ logger = get_logger(__name__)
 SUPPORTED_EXTENSIONS = {".py", ".js", ".jsx", ".ts", ".tsx", ".html", ".css", ".md"}
 MAX_FILE_SIZE_BYTES = 102_400
 DEFAULT_MAX_REPO_FILES = 300
+_RETRY_ATTEMPTS = 3
+_RETRY_BASE_DELAY_SECONDS = 1.0
+_TRANSIENT_STATUS_CODES = {500, 502, 503, 504}
 _NAME_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 _BRANCH_RE = re.compile(r"^[A-Za-z0-9_.\-/]+$")
 
 
 class GithubService:
+    def _sleep_before_retry(self, attempt: int) -> None:
+        delay = _RETRY_BASE_DELAY_SECONDS * (2 ** (attempt - 1))
+        logger.warning("Transient GitHub failure, retrying in %s seconds (attempt %s/%s)", delay, attempt + 1, _RETRY_ATTEMPTS)
+        time.sleep(delay)
+
+    def _request_with_retry(self, url: str) -> requests.Response:
+        last_exception: requests.RequestException | None = None
+
+        for attempt in range(1, _RETRY_ATTEMPTS + 1):
+            try:
+                response = requests.get(url, headers=self._get_headers(), timeout=10)
+            except requests.RequestException as exc:
+                last_exception = exc
+                if attempt == _RETRY_ATTEMPTS:
+                    raise
+                self._sleep_before_retry(attempt)
+                continue
+
+            if response.status_code in _TRANSIENT_STATUS_CODES:
+                logger.warning(
+                    "GitHub returned transient status %s for %s (attempt %s/%s)",
+                    response.status_code,
+                    url,
+                    attempt,
+                    _RETRY_ATTEMPTS,
+                )
+                if attempt == _RETRY_ATTEMPTS:
+                    response.raise_for_status()
+                self._sleep_before_retry(attempt)
+                continue
+
+            return response
+
+        if last_exception is not None:
+            raise last_exception
+
+        raise requests.RequestException(f"GitHub request failed for {url}")
+
+    def _raise_for_rate_limit(self, response: requests.Response, owner: str, repo: str) -> None:
+        payload = response.json()
+        message = payload.get("message", "")
+        remaining = response.headers.get("X-RateLimit-Remaining")
+        reset = response.headers.get("X-RateLimit-Reset")
+
+        if response.status_code == 403 and remaining == "0":
+            reset_time = "later"
+            if reset:
+                try:
+                    reset_time = datetime.fromtimestamp(int(reset), tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+                except (TypeError, ValueError):
+                    reset_time = reset
+
+            raise GithubRateLimitError(
+                f"GitHub API rate limit exceeded, try again after {reset_time}"
+            )
+
+        if "rate limit" in message.lower():
+            raise GithubRateLimitError(
+                f"GitHub API rate limit exceeded, try again after {reset_time if 'reset_time' in locals() else 'later'}"
+            )
+
+        raise RepoPrivateError(f"https://github.com/{owner}/{repo}")
+
     def _validate_branch(self, branch: str) -> None:
         if not branch:
             raise RepoParseError("branch name must not be empty")
@@ -51,17 +119,15 @@ class GithubService:
     def get_repo_metadata(self, owner: str, repo: str) -> dict:
         url = f"https://api.github.com/repos/{owner}/{repo}"
         logger.info("Calling GitHub repo metadata API: %s", url)
-        response = requests.get(url, headers=self._get_headers(), timeout=10)
+        response = self._request_with_retry(url)
 
         if response.status_code == 404:
             raise RepoNotFoundError(f"https://github.com/{owner}/{repo}")
 
         if response.status_code == 403:
-            payload = response.json()
-            message = payload.get("message", "")
-            if "rate limit" in message.lower():
-                raise GithubRateLimitError()
+            self._raise_for_rate_limit(response, owner, repo)
 
+        if response.status_code == 401:
             raise RepoPrivateError(f"https://github.com/{owner}/{repo}")
 
         response.raise_for_status()
@@ -77,15 +143,15 @@ class GithubService:
 
         url = f"https://api.github.com/repos/{owner}/{repo}/git/trees/{branch}?recursive=1"
         logger.info("Fetching GitHub tree: %s", url)
-        response = requests.get(url, headers=self._get_headers(), timeout=10)
+        response = self._request_with_retry(url)
 
         if response.status_code == 404:
             raise RepoNotFoundError(f"https://github.com/{owner}/{repo}")
 
         if response.status_code == 403:
-            payload = response.json()
-            if "rate limit" in payload.get("message", "").lower():
-                raise GithubRateLimitError()
+            self._raise_for_rate_limit(response, owner, repo)
+
+        if response.status_code == 401:
             raise RepoPrivateError(f"https://github.com/{owner}/{repo}")
 
         response.raise_for_status()
@@ -137,7 +203,7 @@ class GithubService:
 
         url = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{path}"
         logger.info("Fetching raw file content: %s", url)
-        response = requests.get(url, headers=self._get_headers(), timeout=10)
+        response = self._request_with_retry(url)
         response.raise_for_status()
         return response.text
 

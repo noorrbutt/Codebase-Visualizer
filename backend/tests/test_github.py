@@ -1,23 +1,31 @@
 from __future__ import annotations
 
 import pytest
+import requests
 
-from app.exceptions import RepoParseError
+from app.exceptions import GithubRateLimitError, RepoNotFoundError, RepoParseError
 from app.services.github import GithubService
 
 
 class DummyResponse:
-    def __init__(self, status_code: int = 200, payload: dict | None = None, text: str = "") -> None:
+    def __init__(
+        self,
+        status_code: int = 200,
+        payload: dict | None = None,
+        text: str = "",
+        headers: dict[str, str] | None = None,
+    ) -> None:
         self.status_code = status_code
         self._payload = payload or {}
         self.text = text
+        self.headers = headers or {}
 
     def json(self) -> dict:
         return self._payload
 
     def raise_for_status(self) -> None:
         if self.status_code >= 400:
-            raise RuntimeError("request failed")
+            raise requests.HTTPError(f"HTTP {self.status_code}")
 
 
 def test_get_repo_metadata_uses_github_api(monkeypatch):
@@ -74,6 +82,58 @@ def test_get_file_tree_accepts_branch_names_with_slashes(monkeypatch):
     monkeypatch.setattr("app.services.github.requests.get", lambda *args, **kwargs: DummyResponse(200, {"tree": []}))
 
     assert service.get_file_tree("octocat", "hello-world", "release/1.0") == []
+
+
+def test_get_repo_metadata_retries_transient_503_then_succeeds(monkeypatch):
+    service = GithubService()
+    responses = [DummyResponse(503, {"message": "Service Unavailable"}), DummyResponse(200, {"default_branch": "main"})]
+    calls: list[tuple[str, dict]] = []
+
+    def fake_get(url, headers=None, timeout=None):
+        calls.append((url, headers or {}))
+        return responses.pop(0)
+
+    monkeypatch.setattr("app.services.github.requests.get", fake_get)
+
+    metadata = service.get_repo_metadata("octocat", "hello-world")
+
+    assert metadata["default_branch"] == "main"
+    assert len(calls) == 2
+
+
+def test_get_repo_metadata_fails_fast_on_404_without_retry(monkeypatch):
+    service = GithubService()
+    calls = 0
+
+    def fake_get(url, headers=None, timeout=None):
+        nonlocal calls
+        calls += 1
+        return DummyResponse(404, {"message": "Not Found"})
+
+    monkeypatch.setattr("app.services.github.requests.get", fake_get)
+
+    with pytest.raises(RepoNotFoundError):
+        service.get_repo_metadata("octocat", "hello-world")
+
+    assert calls == 1
+
+
+def test_get_repo_metadata_raises_specific_rate_limit_message(monkeypatch):
+    service = GithubService()
+
+    def fake_get(url, headers=None, timeout=None):
+        return DummyResponse(
+            403,
+            {"message": "API rate limit exceeded for 1.2.3.4."},
+            headers={"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": "1760000000"},
+        )
+
+    monkeypatch.setattr("app.services.github.requests.get", fake_get)
+
+    with pytest.raises(GithubRateLimitError, match="GitHub API rate limit exceeded") as exc_info:
+        service.get_repo_metadata("octocat", "hello-world")
+
+    assert "try again after" in str(exc_info.value)
 
 
 @pytest.mark.parametrize("branch", ["feature..x", "bad branch", "\n", ""])

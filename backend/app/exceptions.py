@@ -26,8 +26,11 @@ class RepoParseError(Exception):
 
 
 class GithubRateLimitError(Exception):
+    def __init__(self, message: str | None = None) -> None:
+        self.message = message or "GitHub rate limit reached. Please provide a GITHUB_TOKEN or wait before retrying."
+
     def __str__(self) -> str:
-        return "GitHub rate limit reached. Please provide a GITHUB_TOKEN or wait before retrying."
+        return self.message
 
 
 class AIServiceError(Exception):
