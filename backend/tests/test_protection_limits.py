@@ -2,7 +2,6 @@ import asyncio
 from types import SimpleNamespace
 
 import pytest
-from fastapi import HTTPException
 
 from app.api.dependencies import _require_api_key
 from app.config import settings
