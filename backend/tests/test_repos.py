@@ -121,8 +121,6 @@ def test_analyze_status_and_detail_flow(client, monkeypatch):
 
 
 def test_analyze_does_not_require_api_key(client, monkeypatch):
-    monkeypatch.setattr(main_module.settings, "API_KEY", None)
-    monkeypatch.setattr(repos_module.settings, "API_KEY", None)
     monkeypatch.setattr(
         repos_module.github_service, "parse_repo_url", lambda url: ("octocat", "hello-world")
     )
@@ -141,40 +139,6 @@ def test_analyze_does_not_require_api_key(client, monkeypatch):
     )
 
     assert missing_key_response.status_code == 200
-
-
-def test_analyze_requires_api_key_when_configured(client, monkeypatch):
-    monkeypatch.setattr(
-        repos_module.github_service, "parse_repo_url", lambda url: ("octocat", "hello-world")
-    )
-    monkeypatch.setattr(
-        repos_module.github_service,
-        "get_repo_metadata",
-        lambda owner, repo: {"default_branch": "main"},
-    )
-    monkeypatch.setattr(repos_module.repo_rate_limiter, "allow", lambda ip: True)
-    monkeypatch.setattr(
-        repos_module, "_build_repo_analysis_with_timeout", lambda *args, **kwargs: None
-    )
-
-    missing_key_response = client.post(
-        "/repos/analyze", json={"github_url": "https://github.com/octocat/hello-world"}
-    )
-    assert missing_key_response.status_code == 401
-
-    wrong_key_response = client.post(
-        "/repos/analyze",
-        json={"github_url": "https://github.com/octocat/hello-world"},
-        headers={"X-API-Key": "wrong-key"},
-    )
-    assert wrong_key_response.status_code == 401
-
-    valid_key_response = client.post(
-        "/repos/analyze",
-        json={"github_url": "https://github.com/octocat/hello-world"},
-        headers={"X-API-Key": "test-api-key"},
-    )
-    assert valid_key_response.status_code == 200
 
 
 def test_analyze_claims_repo_lock_before_background_work(client, monkeypatch):
@@ -250,6 +214,14 @@ def test_analyze_rejects_when_concurrency_cap_is_exhausted(client, monkeypatch):
     async def reject_acquire() -> bool:
         return False
 
+    monkeypatch.setattr(
+        repos_module.github_service, "parse_repo_url", lambda url: ("octocat", "hello-world")
+    )
+    monkeypatch.setattr(
+        repos_module.github_service,
+        "get_repo_metadata",
+        lambda owner, repo: {"default_branch": "main"},
+    )
     monkeypatch.setattr(repos_module, "acquire_repo_analysis_slot", reject_acquire)
     monkeypatch.setattr(repos_module.repo_rate_limiter, "allow", lambda ip: True)
 
