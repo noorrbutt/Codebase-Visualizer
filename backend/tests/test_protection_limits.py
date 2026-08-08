@@ -211,7 +211,7 @@ def test_repo_api_key_dependency():
 def test_ai_service_retries_with_async_sleep_and_timeout(monkeypatch):
     service = AIService(hourly_limit=10, daily_limit=10)
     service.client = object()
-    service.ensure_budget_available = lambda: None
+    service.ensure_budget_available = lambda client_ip=None: None
 
     slept: list[float] = []
 
@@ -240,7 +240,7 @@ def test_ai_service_does_not_retry_on_malformed_model_output(monkeypatch):
     service.client = DummyGroqClient(
         lambda *args, **kwargs: DummyGroqResponse("```json\nnot actually json")
     )
-    service.ensure_budget_available = lambda: None
+    service.ensure_budget_available = lambda client_ip=None: None
 
     slept: list[float] = []
 
@@ -259,7 +259,7 @@ def test_ai_service_does_not_retry_on_malformed_model_output(monkeypatch):
 def test_ai_service_retries_only_on_actual_rate_limit_errors(monkeypatch):
     service = AIService(hourly_limit=10, daily_limit=10)
     service.client = object()
-    service.ensure_budget_available = lambda: None
+    service.ensure_budget_available = lambda client_ip=None: None
 
     slept: list[float] = []
     attempts = {"count": 0}

@@ -191,10 +191,7 @@ class AIService:
         if not self.client:
             raise AIServiceError("GROQ_API_KEY not configured")
 
-        try:
-            self.ensure_budget_available(client_ip=client_ip)
-        except TypeError:
-            self.ensure_budget_available()
+        self.ensure_budget_available(client_ip=client_ip)
 
         snippet = "\n".join(content.splitlines()[:200])
         last_exc: Exception = Exception("unknown error")
