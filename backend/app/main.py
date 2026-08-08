@@ -28,6 +28,11 @@ logger = get_logger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    logger.info(
+        "Starting app in env={} with TRUST_PROXY_HEADERS={}",
+        settings.APP_ENV,
+        settings.TRUST_PROXY_HEADERS,
+    )
     create_tables()
     initialize_repo_analysis_concurrency_gate()
     logger.info("Database tables ready")

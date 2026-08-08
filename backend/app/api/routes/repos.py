@@ -371,10 +371,10 @@ def resume_pending_repo_analyses() -> None:
                         continue
 
                 reclaimed += 1
-logger.info("Rescheduled pending analysis for repo {} (reclaimed)", repo.id)
-    else:
-        skipped += 1
-        logger.info("Skipped pending repo {} — currently locked by another worker", repo.id)
+                logger.info("Rescheduled pending analysis for repo {} (reclaimed)", repo.id)
+            else:
+                skipped += 1
+                logger.info("Skipped pending repo {} — currently locked by another worker", repo.id)
 
         logger.info("Resume pending analyses summary: reclaimed={} skipped={}", reclaimed, skipped)
     finally:
