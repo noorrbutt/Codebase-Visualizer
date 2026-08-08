@@ -192,10 +192,10 @@ async def _build_repo_summary(
         repo.summary = summary
         repo.status = "ready"
         db.commit()
-        logger.info("Repo summary saved for repo %s", repo_id)
+        logger.info("Repo summary saved for repo {}", repo_id)
     except Exception as exc:
         db.rollback()
-        logger.error("Repo summary background task failed for repo %s: %s", repo_id, exc)
+        logger.error("Repo summary background task failed for repo {}: {}", repo_id, exc)
         repo = db.get(Repository, repo_id)
         if repo:
             repo.status = "failed"
@@ -214,7 +214,7 @@ async def _build_repo_analysis(
 ) -> None:
     db = SessionLocal()
     try:
-        logger.info("Starting background analysis for repo %s", repo_id)
+        logger.info("Starting background analysis for repo {}", repo_id)
         tree_items = await asyncio.to_thread(github_service.get_file_tree, owner, repo_name, branch)
         file_paths = [item["path"] for item in tree_items]
         contents = await asyncio.to_thread(
@@ -269,10 +269,10 @@ async def _build_repo_analysis(
         # clear any claim information now that analysis completed
         _clear_repo_lock(repo)
         db.commit()
-        logger.info("Background repo analysis complete for repo %s", repo_id)
+        logger.info("Background repo analysis complete for repo {}", repo_id)
     except Exception as exc:
         db.rollback()
-        logger.error("Background repo analysis failed for repo %s: %s", repo_id, exc)
+        logger.error("Background repo analysis failed for repo {}: {}", repo_id, exc)
         repo = db.get(Repository, repo_id)
         if repo:
             repo.status = "failed"
@@ -302,9 +302,7 @@ async def _build_repo_analysis_with_timeout(
         if not slot_preacquired:
             slot_acquired = await acquire_repo_analysis_slot()
             if not slot_acquired:
-                logger.info("Skipping repo analysis %s because the concurrent cap is already reached", repo_id)
-                return
-
+                    logger.info("Skipping repo analysis {} because the concurrent cap is already reached", repo_id)
         await asyncio.wait_for(
             _build_repo_analysis(repo_id, owner, repo_name, github_url, branch, client_ip=client_ip),
             timeout=120,
@@ -373,12 +371,12 @@ def resume_pending_repo_analyses() -> None:
                         continue
 
                 reclaimed += 1
-                logger.info("Rescheduled pending analysis for repo %s (reclaimed)", repo.id)
-            else:
-                skipped += 1
-                logger.info("Skipped pending repo %s — currently locked by another worker", repo.id)
+logger.info("Rescheduled pending analysis for repo {} (reclaimed)", repo.id)
+    else:
+        skipped += 1
+        logger.info("Skipped pending repo {} — currently locked by another worker", repo.id)
 
-        logger.info("Resume pending analyses summary: reclaimed=%d skipped=%d", reclaimed, skipped)
+        logger.info("Resume pending analyses summary: reclaimed={} skipped={}", reclaimed, skipped)
     finally:
         db.close()
 
@@ -436,7 +434,7 @@ async def analyze_repo(
             db.commit()
         except Exception as exc:
             db.rollback()
-            logger.error("Failed to save repository %s: %s", repo_key, exc)
+            logger.error("Failed to save repository {}: {}", repo_key, exc)
             raise HTTPException(status_code=500, detail="Failed to persist repository data")
 
         slot_acquired = await acquire_repo_analysis_slot()

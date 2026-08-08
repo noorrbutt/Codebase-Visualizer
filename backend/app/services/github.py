@@ -31,7 +31,7 @@ _BRANCH_RE = re.compile(r"^[A-Za-z0-9_.\-/]+$")
 class GithubService:
     def _sleep_before_retry(self, attempt: int) -> None:
         delay = _RETRY_BASE_DELAY_SECONDS * (2 ** (attempt - 1))
-        logger.warning("Transient GitHub failure, retrying in %s seconds (attempt %s/%s)", delay, attempt + 1, _RETRY_ATTEMPTS)
+        logger.warning("Transient GitHub failure, retrying in {} seconds (attempt {}/{})", delay, attempt + 1, _RETRY_ATTEMPTS)
         time.sleep(delay)
 
     def _request_with_retry(self, url: str) -> requests.Response:
@@ -118,7 +118,7 @@ class GithubService:
 
     def get_repo_metadata(self, owner: str, repo: str) -> dict:
         url = f"https://api.github.com/repos/{owner}/{repo}"
-        logger.info("Calling GitHub repo metadata API: %s", url)
+        logger.info("Calling GitHub repo metadata API: {}", url)
         response = self._request_with_retry(url)
 
         if response.status_code == 404:
@@ -133,7 +133,7 @@ class GithubService:
         response.raise_for_status()
 
         metadata = response.json()
-        logger.info("GitHub repo metadata received for %s/%s", owner, repo)
+        logger.info("GitHub repo metadata received for {}/{}", owner, repo)
         return metadata
 
     def get_file_tree(self, owner: str, repo: str, branch: str) -> list[dict]:
@@ -142,7 +142,7 @@ class GithubService:
         self._validate_branch(branch)
 
         url = f"https://api.github.com/repos/{owner}/{repo}/git/trees/{branch}?recursive=1"
-        logger.info("Fetching GitHub tree: %s", url)
+        logger.info("Fetching GitHub tree: {}", url)
         response = self._request_with_retry(url)
 
         if response.status_code == 404:
@@ -190,10 +190,10 @@ class GithubService:
 
             filtered.append(item)
 
-        logger.info("Filtered GitHub tree to %s supported files", len(filtered))
+        logger.info("Filtered GitHub tree to {} supported files", len(filtered))
         capped = filtered[: settings.MAX_REPO_FILES]
         if len(filtered) > settings.MAX_REPO_FILES:
-            logger.warning("Capping repository analysis to %s files from %s discovered files", len(capped), len(filtered))
+            logger.warning("Capping repository analysis to {} files from {} discovered files", len(capped), len(filtered))
         return capped
 
     def get_file_content(self, owner: str, repo: str, branch: str, path: str) -> str:
@@ -202,14 +202,14 @@ class GithubService:
         self._validate_branch(branch)
 
         url = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{path}"
-        logger.info("Fetching raw file content: %s", url)
+        logger.info("Fetching raw file content: {}", url)
         response = self._request_with_retry(url)
         response.raise_for_status()
         return response.text
 
     def fetch_files_concurrent(self, owner: str, repo: str, branch: str, paths: list[str]) -> dict[str, str]:
         contents: dict[str, str] = {}
-        logger.info("Fetching %s files concurrently", len(paths))
+        logger.info("Fetching {} files concurrently", len(paths))
 
         with ThreadPoolExecutor(max_workers=10) as executor:
             futures = {executor.submit(self.get_file_content, owner, repo, branch, path): path for path in paths}
@@ -219,15 +219,14 @@ class GithubService:
                 try:
                     contents[path] = future.result()
                 except requests.RequestException as exc:
-                    logger.warning("Failed to fetch %s: %s", path, exc)
+                    logger.warning("Failed to fetch {}: {}", path, exc)
                 except Exception as exc:
-                    logger.warning("Unexpected failure while fetching %s: %s", path, exc)
+                    logger.warning("Unexpected failure while fetching {}: {}", path, exc)
 
-        logger.info("Completed concurrent file fetch, successful=%s", len(contents))
-        return contents
+        logger.info("Completed concurrent file fetch, successful={}", len(contents))
 
     def parse_repo_url(self, url: str) -> tuple[str, str]:
-        logger.info("Parsing GitHub URL: %s", url)
+        logger.info("Parsing GitHub URL: {}", url)
         parsed = urlparse(url)
         if parsed.scheme not in {"https", "http"}:
             raise RepoParseError("URL must start with http:// or https://")

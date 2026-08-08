@@ -116,7 +116,7 @@ class AIService:
             "Keep it factual and under 60 words."
         )
 
-        logger.info("Sending repo summary prompt to Groq for %s", repo_name)
+        logger.info("Sending repo summary prompt to Groq for {}", repo_name)
         try:
             response = self.client.chat.completions.create(
                 model=GROQ_MODEL,
@@ -127,7 +127,7 @@ class AIService:
             summary = response.choices[0].message.content.strip()
             usage = getattr(response, "usage", None)
             if usage is not None:
-                logger.info("AI repo summary usage: %s", usage)
+                logger.info("AI repo summary usage: {}", usage)
             return summary
         except Exception as exc:
             raise AIServiceError(str(exc)) from exc
@@ -151,7 +151,7 @@ class AIService:
         raw_text = response.choices[0].message.content.strip()
         usage = getattr(response, "usage", None)
         if usage is not None:
-            logger.info("AI file analysis usage: %s", usage)
+            logger.info("AI file analysis usage: {}", usage)
 
         try:
             parsed = json.loads(raw_text)
@@ -201,7 +201,7 @@ class AIService:
         loop = asyncio.get_running_loop()
         deadline = loop.time() + timeout_seconds
 
-        logger.info("Sending file analysis prompt to Groq for %s", file_path)
+        logger.info("Sending file analysis prompt to Groq for {}", file_path)
 
         for attempt in range(3):
             try:
@@ -224,7 +224,7 @@ class AIService:
                 raise AIServiceError(f"AI file analysis timed out after {timeout_seconds}s")
 
             wait = min(2.0, remaining)
-            logger.warning("Groq rate limit hit for %s, waiting %.1fs before retry", file_path, wait)
+            logger.warning("Groq rate limit hit for {}, waiting {:.1f}s before retry", file_path, wait)
             await asyncio.sleep(wait)
 
         raise AIServiceError(str(last_exc))
