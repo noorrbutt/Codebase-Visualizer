@@ -302,7 +302,17 @@ async def _build_repo_analysis_with_timeout(
         if not slot_preacquired:
             slot_acquired = await acquire_repo_analysis_slot()
             if not slot_acquired:
-                    logger.info("Skipping repo analysis {} because the concurrent cap is already reached", repo_id)
+                logger.info("Skipping repo analysis {} because the concurrent cap is already reached", repo_id)
+                db = SessionLocal()
+                try:
+                    repo = db.get(Repository, repo_id)
+                    if repo is not None:
+                        repo.status = "failed"
+                        _clear_repo_lock(repo)
+                        db.commit()
+                finally:
+                    db.close()
+                return
         await asyncio.wait_for(
             _build_repo_analysis(repo_id, owner, repo_name, github_url, branch, client_ip=client_ip),
             timeout=120,

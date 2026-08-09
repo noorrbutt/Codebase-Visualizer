@@ -288,6 +288,55 @@ def test_analyze_rejects_when_concurrency_cap_is_exhausted(client, monkeypatch):
     assert response.json()["detail"] == "Too many repository analyses are currently running"
 
 
+def test_build_repo_analysis_with_timeout_sets_failed_when_slot_unavailable(client, monkeypatch):
+    async def reject_acquire() -> bool:
+        return False
+
+    called = False
+
+    async def fake_build_repo_analysis(*args, **kwargs):
+        nonlocal called
+        called = True
+
+    with database_module.SessionLocal() as db:
+        repo = Repository(
+            owner="octocat",
+            repo_name="hello-world",
+            github_url="https://github.com/octocat/hello-world",
+            default_branch="main",
+            status="parsing",
+            locked_at=datetime.now(timezone.utc),
+            worker_id="worker-1",
+        )
+        db.add(repo)
+        db.commit()
+        repo_id = repo.id
+
+    monkeypatch.setattr(repos_module, "acquire_repo_analysis_slot", reject_acquire)
+    monkeypatch.setattr(repos_module, "_build_repo_analysis", fake_build_repo_analysis)
+
+    import asyncio
+
+    asyncio.run(
+        repos_module._build_repo_analysis_with_timeout(
+            repo_id,
+            "octocat",
+            "hello-world",
+            "https://github.com/octocat/hello-world",
+            "main",
+        )
+    )
+
+    assert called is False
+
+    with database_module.SessionLocal() as db:
+        repo = db.get(Repository, repo_id)
+        assert repo is not None
+        assert repo.status == "failed"
+        assert repo.locked_at is None
+        assert repo.worker_id is None
+
+
 def test_resolve_client_ip_ignores_spoofed_forwarded_header_by_default(monkeypatch):
     monkeypatch.setattr(rate_limit_module.settings, "TRUST_PROXY_HEADERS", False)
 
