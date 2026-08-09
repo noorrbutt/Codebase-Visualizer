@@ -67,7 +67,7 @@ class AIService:
 
         if hourly_count > self.hourly_limit:
             logger.warning(
-                "AI hourly budget exceeded for client %s: global_hourly=%s limit=%s",
+                "AI hourly budget exceeded for client {}: global_hourly={} limit={}",
                 client_identifier,
                 hourly_count,
                 self.hourly_limit,
@@ -75,7 +75,7 @@ class AIService:
             raise AIServiceError("AI request hourly budget exceeded")
         if daily_count > self.daily_limit:
             logger.warning(
-                "AI daily budget exceeded for client %s: global_daily=%s limit=%s",
+                "AI daily budget exceeded for client {}: global_daily={} limit={}",
                 client_identifier,
                 daily_count,
                 self.daily_limit,
@@ -83,7 +83,7 @@ class AIService:
             raise AIServiceError("AI request daily budget exceeded")
         if client_hourly_count > self.client_hourly_limit:
             logger.warning(
-                "AI hourly client budget exceeded for client %s: client_hourly=%s limit=%s",
+                "AI hourly client budget exceeded for client {}: client_hourly={} limit={}",
                 client_identifier,
                 client_hourly_count,
                 self.client_hourly_limit,
@@ -91,7 +91,7 @@ class AIService:
             raise AIServiceError(f"AI request hourly client budget exceeded for {client_identifier}")
         if client_daily_count > self.client_daily_limit:
             logger.warning(
-                "AI daily client budget exceeded for client %s: client_daily=%s limit=%s",
+                "AI daily client budget exceeded for client {}: client_daily={} limit={}",
                 client_identifier,
                 client_daily_count,
                 self.client_daily_limit,

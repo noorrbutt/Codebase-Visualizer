@@ -12,6 +12,7 @@ import app.database as database_module
 import app.main as main_module
 import app.services.rate_limit as rate_limit_module
 from app.database import Base
+from app.exceptions import AIServiceError
 from app.models.file_edge import FileEdge
 from app.models.file_node import FileNode
 from app.models.repository import Repository
@@ -357,6 +358,64 @@ def test_build_repo_analysis_with_timeout_sets_failed_when_slot_unavailable(clie
         repo = db.get(Repository, repo_id)
         assert repo is not None
         assert repo.status == "failed"
+        assert repo.locked_at is None
+        assert repo.worker_id is None
+
+
+def test_build_repo_analysis_marks_ready_when_ai_summary_fails(client, monkeypatch):
+    with database_module.SessionLocal() as db:
+        repo = Repository(
+            owner="octocat",
+            repo_name="hello-world",
+            github_url="https://github.com/octocat/hello-world",
+            default_branch="main",
+            status="parsing",
+            locked_at=datetime.now(timezone.utc),
+            worker_id="worker-1",
+        )
+        db.add(repo)
+        db.commit()
+        repo_id = repo.id
+
+    monkeypatch.setattr(
+        repos_module.github_service,
+        "get_file_tree",
+        lambda owner, repo_name, branch: [{"path": "src/app.py"}],
+    )
+    monkeypatch.setattr(
+        repos_module.github_service,
+        "fetch_files_concurrent",
+        lambda owner, repo_name, branch, file_paths: {"src/app.py": "print('hi')"},
+    )
+    monkeypatch.setattr(
+        repos_module.code_parser,
+        "parse",
+        lambda path, content: {"imports": [], "language": "python", "line_count": 1},
+    )
+    monkeypatch.setattr(
+        repos_module.ai_service,
+        "generate_repo_summary",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AIServiceError("AI summary generation failed")),
+    )
+
+    import asyncio
+
+    asyncio.run(
+        repos_module._build_repo_analysis(
+            repo_id,
+            "octocat",
+            "hello-world",
+            "https://github.com/octocat/hello-world",
+            "main",
+            client_ip="127.0.0.1",
+        )
+    )
+
+    with database_module.SessionLocal() as db:
+        repo = db.get(Repository, repo_id)
+        assert repo is not None
+        assert repo.status == "ready"
+        assert repo.summary is None
         assert repo.locked_at is None
         assert repo.worker_id is None
 

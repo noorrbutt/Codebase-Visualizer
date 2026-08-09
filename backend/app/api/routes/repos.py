@@ -20,6 +20,7 @@ from app.schemas.repository import (
     FileNodeOut,
     RepoListItem,
 )
+from app.exceptions import AIServiceError
 from app.services.ai import AIService
 from app.services.coordination import RedisConcurrencyGate, RedisMutex
 from app.services.github import GithubService
@@ -258,18 +259,30 @@ async def _build_repo_analysis(
         repo.status = "parsing"
         db.commit()
 
-        summary = await asyncio.to_thread(
-            ai_service.generate_repo_summary,
-            repo_name,
-            file_paths,
-            client_ip=client_ip,
-        )
-        repo.summary = summary
-        repo.status = "ready"
-        # clear any claim information now that analysis completed
-        _clear_repo_lock(repo)
-        db.commit()
-        logger.info("Background repo analysis complete for repo {}", repo_id)
+        try:
+            summary = await asyncio.to_thread(
+                ai_service.generate_repo_summary,
+                repo_name,
+                file_paths,
+                client_ip=client_ip,
+            )
+            repo.summary = summary
+            repo.status = "ready"
+            # clear any claim information now that analysis completed
+            _clear_repo_lock(repo)
+            db.commit()
+            logger.info("Background repo analysis complete for repo {}", repo_id)
+        except AIServiceError as exc:
+            repo.summary = None
+            repo.status = "ready"
+            _clear_repo_lock(repo)
+            db.commit()
+            logger.warning(
+                "AI summary unavailable for repo {} due to budget/AI failure: {}",
+                repo_id,
+                exc,
+            )
+            logger.info("Background repo analysis completed without AI summary for repo {}", repo_id)
     except Exception as exc:
         db.rollback()
         logger.error("Background repo analysis failed for repo {}: {}", repo_id, exc)

@@ -79,6 +79,8 @@ The frontend does not use any shared secret or API key. Browser code is public, 
 | `VITE_API_URL` | No | Frontend-only backend base URL for local development. It is not an auth boundary. |
 | `GITHUB_TOKEN` | No | Optional GitHub Personal Access Token — increases API rate limits when fetching repository trees and files. |
 | `DATABASE_URL` | No | Database connection string. Defaults to a local SQLite file when not provided. Production deployments should point this to PostgreSQL because SQLite will not handle concurrent background writes well. 
+| `AI_MAX_CLIENT_REQUESTS_PER_HOUR` | No | Per-client hourly AI request limit. You can raise this locally for dev/testing (e.g. 100) if you repeatedly hit the same machine from the browser. |
+| `AI_MAX_CLIENT_REQUESTS_PER_DAY` | No | Per-client daily AI request limit. You can raise this locally for dev/testing (e.g. 200) if needed. |
 
 ## Limitations & Notes
 
