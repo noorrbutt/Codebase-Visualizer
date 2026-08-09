@@ -77,6 +77,29 @@ def test_get_file_content_returns_raw_text(monkeypatch):
     assert service.get_file_content("octocat", "hello-world", "main", "src/app.py") == "print('hello')"
 
 
+def test_fetch_files_concurrent_returns_contents_for_all_paths(monkeypatch):
+    service = GithubService()
+    calls: list[tuple[str, str]] = []
+
+    def fake_get_file_content(self, owner, repo, branch, path):
+        calls.append((branch, path))
+        return f"content for {path}"
+
+    monkeypatch.setattr(GithubService, "get_file_content", fake_get_file_content)
+
+    paths = ["src/app.py", "src/utils.py", "README.md"]
+    contents = service.fetch_files_concurrent("octocat", "hello-world", "main", paths)
+
+    assert isinstance(contents, dict)
+    assert len(contents) == 3
+    assert contents == {
+        "src/app.py": "content for src/app.py",
+        "src/utils.py": "content for src/utils.py",
+        "README.md": "content for README.md",
+    }
+    assert all(path in contents for path in paths)
+
+
 def test_get_file_tree_accepts_branch_names_with_slashes(monkeypatch):
     service = GithubService()
     monkeypatch.setattr("app.services.github.requests.get", lambda *args, **kwargs: DummyResponse(200, {"tree": []}))

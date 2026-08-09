@@ -224,6 +224,7 @@ class GithubService:
                     logger.warning("Unexpected failure while fetching {}: {}", path, exc)
 
         logger.info("Completed concurrent file fetch, successful={}", len(contents))
+        return contents
 
     def parse_repo_url(self, url: str) -> tuple[str, str]:
         logger.info("Parsing GitHub URL: {}", url)
