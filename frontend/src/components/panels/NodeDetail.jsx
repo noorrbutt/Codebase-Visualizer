@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { getLangColor, COMPLEXITY_COLOR, API } from "../../utils/lang";
+import { getLangColor, COMPLEXITY_COLOR } from "../../utils/lang";
 import { apiFetch } from "../../utils/api";
 
 function Badge({ children, color = "#F3F4F6", textColor = "#374151" }) {

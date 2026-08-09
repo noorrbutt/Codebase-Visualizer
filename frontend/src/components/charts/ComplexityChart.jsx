@@ -74,7 +74,7 @@ export default function ComplexityChart({ nodes, repoId }) {
     );
 
     return result.slices;
-  }, [counts, total]);
+  }, [counts, total, CIRCUMFERENCE]);
 
   if (total === 0 || analyzed === 0) {
     return (
