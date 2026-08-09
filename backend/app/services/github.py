@@ -72,22 +72,35 @@ class GithubService:
         message = payload.get("message", "")
         remaining = response.headers.get("X-RateLimit-Remaining")
         reset = response.headers.get("X-RateLimit-Reset")
+        reset_time = "later"
 
+        if reset:
+            try:
+                reset_time = datetime.fromtimestamp(int(reset), tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+            except (TypeError, ValueError):
+                reset_time = reset
+
+        lower_message = message.lower()
         if response.status_code == 403 and remaining == "0":
-            reset_time = "later"
-            if reset:
-                try:
-                    reset_time = datetime.fromtimestamp(int(reset), tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-                except (TypeError, ValueError):
-                    reset_time = reset
-
             raise GithubRateLimitError(
                 f"GitHub API rate limit exceeded, try again after {reset_time}"
             )
 
-        if "rate limit" in message.lower():
+        if (
+            response.status_code == 403
+            and (
+                response.headers.get("Retry-After") is not None
+                or "secondary rate limit" in lower_message
+                or "abuse detection" in lower_message
+            )
+        ):
             raise GithubRateLimitError(
-                f"GitHub API rate limit exceeded, try again after {reset_time if 'reset_time' in locals() else 'later'}"
+                "GitHub API secondary rate limit or abuse detection triggered, retry after the delay indicated by GitHub"
+            )
+
+        if "rate limit" in lower_message:
+            raise GithubRateLimitError(
+                f"GitHub API rate limit exceeded, try again after {reset_time}"
             )
 
         raise RepoPrivateError(f"https://github.com/{owner}/{repo}")

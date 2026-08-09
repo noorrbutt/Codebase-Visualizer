@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 import requests
 
-from app.exceptions import GithubRateLimitError, RepoNotFoundError, RepoParseError
+from app.exceptions import GithubRateLimitError, RepoNotFoundError, RepoParseError, RepoPrivateError
 from app.services.github import GithubService
 
 
@@ -157,6 +157,38 @@ def test_get_repo_metadata_raises_specific_rate_limit_message(monkeypatch):
         service.get_repo_metadata("octocat", "hello-world")
 
     assert "try again after" in str(exc_info.value)
+
+
+def test_get_repo_metadata_raises_secondary_rate_limit(monkeypatch):
+    service = GithubService()
+
+    def fake_get(url, headers=None, timeout=None):
+        return DummyResponse(
+            403,
+            {"message": "You have triggered secondary rate limit"},
+            headers={"Retry-After": "60"},
+        )
+
+    monkeypatch.setattr("app.services.github.requests.get", fake_get)
+
+    with pytest.raises(GithubRateLimitError, match="secondary rate limit or abuse detection"):
+        service.get_repo_metadata("octocat", "hello-world")
+
+
+def test_get_repo_metadata_raises_repo_private_error_for_generic_403(monkeypatch):
+    service = GithubService()
+
+    def fake_get(url, headers=None, timeout=None):
+        return DummyResponse(
+            403,
+            {"message": "Some other permission issue"},
+            headers={"X-RateLimit-Remaining": "10"},
+        )
+
+    monkeypatch.setattr("app.services.github.requests.get", fake_get)
+
+    with pytest.raises(RepoPrivateError):
+        service.get_repo_metadata("octocat", "hello-world")
 
 
 @pytest.mark.parametrize("branch", ["feature..x", "bad branch", "\n", ""])
