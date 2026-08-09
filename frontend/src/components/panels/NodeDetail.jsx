@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { getLangColor, COMPLEXITY_COLOR, API } from "../../utils/lang";
+import { apiFetch } from "../../utils/api";
 
 function Badge({ children, color = "#F3F4F6", textColor = "#374151" }) {
   return (
@@ -96,7 +97,7 @@ export default function NodeDetail({ node, edges, repoId, repoOwner, repoName, r
     setAnalysisError(null);
 
     const doFetch = async () => {
-      return fetch(`${API}/files/analyze`, {
+      return apiFetch(`/files/analyze`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import DashboardPage from "./DashboardPage";
 import { API, getLangColor } from "./utils/lang";
+import { apiFetch } from "./utils/api";
 
 function HomePage({ onAnalyze, loading, externalError, onClearError }) {
   const [url, setUrl] = useState("");
@@ -137,7 +138,7 @@ export default function App() {
     const parts = url.replace("https://github.com/", "").split("/");
     setRepoName(parts.slice(0, 2).join("/"));
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL}/repos/analyze`, {
+      const res = await apiFetch(`/repos/analyze`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
