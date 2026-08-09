@@ -52,7 +52,7 @@ app.add_middleware(
     allow_origins=settings.CORS_ORIGINS,
     allow_methods=["GET", "POST"],
     # Keep the allowed request headers explicit and aligned with the current auth-less flow.
-    allow_headers=["Content-Type"],
+    allow_headers=["Content-Type", "X-API-Key"],
 )
 
 

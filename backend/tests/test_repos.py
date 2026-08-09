@@ -70,6 +70,30 @@ def test_cors_allows_configured_frontend_origin(client):
     assert response.headers["access-control-allow-origin"] == "http://localhost:5173"
 
 
+def test_cors_allows_x_api_key_header_for_analyze(client, monkeypatch):
+    monkeypatch.setattr(
+        repos_module.github_service, "parse_repo_url", lambda url: ("octocat", "hello-world")
+    )
+    monkeypatch.setattr(
+        repos_module.github_service,
+        "get_repo_metadata",
+        lambda owner, repo: {"default_branch": "main"},
+    )
+    monkeypatch.setattr(repos_module.repo_rate_limiter, "allow", lambda ip: True)
+    monkeypatch.setattr(
+        repos_module, "_build_repo_analysis_with_timeout", lambda *args, **kwargs: None
+    )
+
+    response = client.post(
+        "/repos/analyze",
+        json={"github_url": "https://github.com/octocat/hello-world"},
+        headers={"Origin": "http://localhost:5173", "X-API-Key": "test-api-key"},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://localhost:5173"
+
+
 def test_analyze_status_and_detail_flow(client, monkeypatch):
     monkeypatch.setattr(
         repos_module.github_service, "parse_repo_url", lambda url: ("octocat", "hello-world")
