@@ -3,6 +3,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from fastapi import HTTPException
+
 from app.api.dependencies import _require_api_key
 from app.config import settings
 import app.services.ai as ai_module
@@ -203,10 +205,21 @@ def test_ai_service_uses_redis_budgets(monkeypatch):
         second_service.ensure_budget_available()
 
 
-def test_repo_api_key_dependency():
+def test_repo_api_key_dependency(monkeypatch):
+    monkeypatch.setattr(settings, "API_KEY", None)
     assert _require_api_key() is None
     assert _require_api_key("secret-token") is None
     assert _require_api_key("wrong-token") is None
+
+    monkeypatch.setattr(settings, "API_KEY", "secret-token")
+    assert _require_api_key("secret-token") is None
+
+    with pytest.raises(HTTPException) as exc_info:
+        _require_api_key("wrong-token")
+
+    assert exc_info.value.status_code == 401
+    assert exc_info.value.detail == "Invalid API key"
+
 
 def test_ai_service_retries_with_async_sleep_and_timeout(monkeypatch):
     service = AIService(hourly_limit=10, daily_limit=10)

@@ -87,6 +87,7 @@ def test_analyze_status_and_detail_flow(client, monkeypatch):
     response = client.post(
         "/repos/analyze",
         json={"github_url": "https://github.com/octocat/hello-world"},
+        headers={"X-API-Key": "test-api-key"},
     )
 
     assert response.status_code == 200
@@ -120,7 +121,7 @@ def test_analyze_status_and_detail_flow(client, monkeypatch):
     assert detail_response.json()["edges"][0]["source"] == "src/app.py"
 
 
-def test_analyze_does_not_require_api_key(client, monkeypatch):
+def test_analyze_rejects_missing_api_key(client, monkeypatch):
     monkeypatch.setattr(
         repos_module.github_service, "parse_repo_url", lambda url: ("octocat", "hello-world")
     )
@@ -138,7 +139,55 @@ def test_analyze_does_not_require_api_key(client, monkeypatch):
         "/repos/analyze", json={"github_url": "https://github.com/octocat/hello-world"}
     )
 
-    assert missing_key_response.status_code == 200
+    assert missing_key_response.status_code == 401
+    assert missing_key_response.json()["detail"] == "Invalid API key"
+
+
+def test_analyze_rejects_invalid_api_key(client, monkeypatch):
+    monkeypatch.setattr(
+        repos_module.github_service, "parse_repo_url", lambda url: ("octocat", "hello-world")
+    )
+    monkeypatch.setattr(
+        repos_module.github_service,
+        "get_repo_metadata",
+        lambda owner, repo: {"default_branch": "main"},
+    )
+    monkeypatch.setattr(repos_module.repo_rate_limiter, "allow", lambda ip: True)
+    monkeypatch.setattr(
+        repos_module, "_build_repo_analysis_with_timeout", lambda *args, **kwargs: None
+    )
+
+    invalid_key_response = client.post(
+        "/repos/analyze",
+        json={"github_url": "https://github.com/octocat/hello-world"},
+        headers={"X-API-Key": "wrong-key"},
+    )
+
+    assert invalid_key_response.status_code == 401
+    assert invalid_key_response.json()["detail"] == "Invalid API key"
+
+
+def test_analyze_accepts_valid_api_key(client, monkeypatch):
+    monkeypatch.setattr(
+        repos_module.github_service, "parse_repo_url", lambda url: ("octocat", "hello-world")
+    )
+    monkeypatch.setattr(
+        repos_module.github_service,
+        "get_repo_metadata",
+        lambda owner, repo: {"default_branch": "main"},
+    )
+    monkeypatch.setattr(repos_module.repo_rate_limiter, "allow", lambda ip: True)
+    monkeypatch.setattr(
+        repos_module, "_build_repo_analysis_with_timeout", lambda *args, **kwargs: None
+    )
+
+    valid_key_response = client.post(
+        "/repos/analyze",
+        json={"github_url": "https://github.com/octocat/hello-world"},
+        headers={"X-API-Key": "test-api-key"},
+    )
+
+    assert valid_key_response.status_code == 200
 
 
 def test_analyze_claims_repo_lock_before_background_work(client, monkeypatch):
@@ -158,6 +207,7 @@ def test_analyze_claims_repo_lock_before_background_work(client, monkeypatch):
     response = client.post(
         "/repos/analyze",
         json={"github_url": "https://github.com/octocat/hello-world"},
+        headers={"X-API-Key": "test-api-key"},
     )
 
     assert response.status_code == 200
@@ -187,12 +237,14 @@ def test_analyze_rejects_duplicate_in_progress_request_for_same_repo(client, mon
     first_response = client.post(
         "/repos/analyze",
         json={"github_url": "https://github.com/octocat/hello-world"},
+        headers={"X-API-Key": "test-api-key"},
     )
     assert first_response.status_code == 200
 
     second_response = client.post(
         "/repos/analyze",
         json={"github_url": "https://github.com/octocat/hello-world"},
+        headers={"X-API-Key": "test-api-key"},
     )
 
     assert second_response.status_code == 409
@@ -205,6 +257,7 @@ def test_analyze_rejects_when_rate_limited(client, monkeypatch):
     response = client.post(
         "/repos/analyze",
         json={"github_url": "https://github.com/octocat/hello-world"},
+        headers={"X-API-Key": "test-api-key"},
     )
 
     assert response.status_code == 429
@@ -228,6 +281,7 @@ def test_analyze_rejects_when_concurrency_cap_is_exhausted(client, monkeypatch):
     response = client.post(
         "/repos/analyze",
         json={"github_url": "https://github.com/octocat/hello-world"},
+        headers={"X-API-Key": "test-api-key"},
     )
 
     assert response.status_code == 503
