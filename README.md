@@ -89,6 +89,16 @@ The frontend does not use any shared secret or API key. Browser code is public, 
 - AI requests are throttled and performed in background tasks — analysis of large repositories will take time and may be subject to rate limits.
 - This repository intentionally does not implement authentication, onboarding flows, or team/collaboration features. All these features will be added once the project is deployed. 
 
+## Production Deployment
+
+When deploying to production you should not rely on a frontend-exposed API key for protection. The `VITE_API_KEY` (or `API_KEY`) is visible in browser bundles and only deters casual abuse. For robust protection:
+
+- Put the heavy endpoint `/repos/analyze` behind infrastructure-level rate limiting (Cloudflare, nginx `limit_req`, WAF rules, CDN rate limits, etc.).
+- Ensure `TRUST_PROXY_HEADERS` is only set to `true` when your app is behind a trusted reverse proxy which strips and sets `X-Forwarded-For`; otherwise IP-based rate limiting is trivially bypassed by client-supplied headers.
+- Use a `GITHUB_TOKEN` in production to avoid the unauthenticated GitHub limit of 60 requests/hour.
+
+These measures, combined with the app's server-side IP rate limiting, provide a practical mitigation against abuse for public deployments.
+
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

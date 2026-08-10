@@ -45,6 +45,14 @@ def _validate_production_settings(settings) -> None:
                 "no GITHUB_TOKEN set - limited to 60 GitHub requests/hr, fine for local testing only"
             )
 
+    # Warn when trusting X-Forwarded-For headers in production. This should
+    # only be enabled when a trusted reverse proxy strips client-supplied
+    # values; otherwise IP-based rate limits are trivially bypassed.
+    if settings.TRUST_PROXY_HEADERS and settings.APP_ENV == "production":
+        logger.warning(
+            "TRUST_PROXY_HEADERS=True - ensure a trusted reverse proxy strips client-supplied X-Forwarded-For before requests reach this app, otherwise IP rate limiting is trivially bypassed"
+        )
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
