@@ -59,7 +59,7 @@ async def lifespan(app: FastAPI):
     create_tables()
     initialize_repo_analysis_concurrency_gate()
     logger.info("Database tables ready")
-    resume_pending_repo_analyses()
+    await resume_pending_repo_analyses()
     yield
 
 

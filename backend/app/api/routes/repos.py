@@ -347,7 +347,16 @@ async def _build_repo_analysis_with_timeout(
             await release_repo_analysis_slot()
 
 
-def resume_pending_repo_analyses() -> None:
+async def resume_pending_repo_analyses() -> None:
+    # Try to acquire a global startup reclaim lock so multiple workers
+    # don't race to reclaim the same stale repos simultaneously.
+    startup_mutex = RedisMutex(key_prefix="startup_reclaim_lock", ttl_seconds=60, redis_client=repo_lock_manager._redis_client)
+    token = await startup_mutex.acquire("reclaim", timeout=0)
+    if token is None:
+        # Another worker is already reclaiming; skip.
+        logger.info("Startup reclaim skipped because another worker holds the startup_reclaim_lock")
+        return
+
     db = SessionLocal()
     try:
         pending_repos = db.query(Repository).filter(Repository.status == "parsing").all()
@@ -362,13 +371,15 @@ def resume_pending_repo_analyses() -> None:
                 .filter(Repository.id == repo.id, Repository.status == "parsing")
                 .filter((Repository.locked_at.is_(None)) | (Repository.locked_at < cutoff))
                 .update(
-                        {Repository.locked_at: datetime.now(timezone.utc), Repository.worker_id: worker_id},                    synchronize_session=False,
+                    {Repository.locked_at: datetime.now(timezone.utc), Repository.worker_id: worker_id},
+                    synchronize_session=False,
                 )
             )
             if rows:
                 db.commit()
                 try:
-                    asyncio.get_running_loop().create_task(
+                    loop = asyncio.get_running_loop()
+                    loop.create_task(
                         _build_repo_analysis_with_timeout(
                             repo.id,
                             repo.owner,
@@ -378,22 +389,13 @@ def resume_pending_repo_analyses() -> None:
                         )
                     )
                 except RuntimeError:
-                    # fallback if called outside of a running loop
-                    try:
-                        asyncio.get_event_loop().create_task(
-                            _build_repo_analysis_with_timeout(
-                                repo.id,
-                                repo.owner,
-                                repo.repo_name,
-                                repo.github_url,
-                                repo.default_branch,
-                            )
-                        )
-                    except Exception:
-                        logger.exception("Failed to schedule reclaimed repo %s", repo.id)
-                        # leave the claim so another startup may reclaim later
-                        skipped += 1
-                        continue
+                    logger.error(
+                        "resume_pending_repo_analyses called outside running loop, skipping - repo %s left for another worker to reclaim",
+                        repo.id,
+                    )
+                    # leave the claim so another worker may reclaim later
+                    skipped += 1
+                    continue
 
                 reclaimed += 1
                 logger.info("Rescheduled pending analysis for repo {} (reclaimed)", repo.id)
@@ -404,6 +406,7 @@ def resume_pending_repo_analyses() -> None:
         logger.info("Resume pending analyses summary: reclaimed={} skipped={}", reclaimed, skipped)
     finally:
         db.close()
+        await startup_mutex.release("reclaim", token)
 
 
 @router.post("/analyze", response_model=AnalyzeResponse, dependencies=[Depends(_require_api_key)])
