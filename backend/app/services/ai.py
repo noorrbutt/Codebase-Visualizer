@@ -137,15 +137,16 @@ class AIService:
             model=GROQ_MODEL,
             messages=[{"role": "user", "content": (
                 "Analyze the following source file and return ONLY a JSON object with exactly these keys: "
-                "summary, complexity, role. "
-                "summary: 1-2 sentences. "
+                "summary, summary_detail, complexity, role. "
+                "summary: 2 sentences, plain-English, what this file does. "
+                "summary_detail: 1 paragraph, 4-5 sentences or more, covering key functions/classes, how this file connects to other parts of the codebase, and any notable complexity or design choices. "
                 "complexity: one of low/medium/high. "
                 "role: one of entry_point/api_router/data_model/service/utility/config/test/static/unknown. "
                 "Return nothing else — no markdown, no explanation, just the JSON object. "
                 f"File: {file_path}. Content:\n{snippet}"
             )}],
             response_format={"type": "json_object"},
-            max_tokens=300,
+            max_tokens=550,
             temperature=0.3,
         )
         raw_text = response.choices[0].message.content.strip()
@@ -158,11 +159,12 @@ class AIService:
         except json.JSONDecodeError as exc:
             raise Exception("invalid_json: " + raw_text[:120]) from exc
 
-        if not all(key in parsed for key in ("summary", "complexity", "role")):
+        if not all(key in parsed for key in ("summary", "summary_detail", "complexity", "role")):
             raise Exception("missing_keys: " + str(list(parsed.keys())))
 
         return {
             "summary": str(parsed["summary"]),
+            "summary_detail": str(parsed["summary_detail"]),
             "complexity": str(parsed["complexity"]),
             "role": str(parsed["role"]),
         }

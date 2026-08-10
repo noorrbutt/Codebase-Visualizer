@@ -49,12 +49,14 @@ async def analyze_file(
     if (
         node.analyzed_at is not None
         and node.ai_summary is not None
+        and node.ai_summary_detail is not None
         and node.ai_complexity is not None
         and node.ai_role is not None
     ):
         return FileAnalyzeResponse(
             file_path=node.file_path,
             ai_summary=node.ai_summary,
+            ai_summary_detail=node.ai_summary_detail,
             ai_complexity=node.ai_complexity,
             ai_role=node.ai_role,
         )
@@ -83,6 +85,7 @@ async def analyze_file(
 
     try:
         node.ai_summary = analysis["summary"]
+        node.ai_summary_detail = analysis["summary_detail"]
         node.ai_complexity = analysis["complexity"]
         node.ai_role = analysis["role"]
         node.analyzed_at = datetime.utcnow()
@@ -97,6 +100,7 @@ async def analyze_file(
     return FileAnalyzeResponse(
         file_path=node.file_path,
         ai_summary=node.ai_summary,
+        ai_summary_detail=node.ai_summary_detail,
         ai_complexity=node.ai_complexity,
         ai_role=node.ai_role,
     )

@@ -17,6 +17,7 @@ class FileNode(Base):
     line_count = Column(Integer, nullable=False, default=0)
     import_count = Column(Integer, nullable=False, default=0)
     ai_summary = Column(Text, nullable=True)
+    ai_summary_detail = Column(Text, nullable=True)
     ai_complexity = Column(String, nullable=True)
     ai_role = Column(String, nullable=True)
     analyzed_at = Column(DateTime, nullable=True)

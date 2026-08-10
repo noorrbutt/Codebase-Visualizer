@@ -12,6 +12,7 @@ class FileAnalyzeRequest(BaseModel):
 class FileAnalyzeResponse(BaseModel):
     file_path: str
     ai_summary: str | None
+    ai_summary_detail: str | None
     ai_complexity: str | None
     ai_role: str | None
     model_config = ConfigDict(from_attributes=True)

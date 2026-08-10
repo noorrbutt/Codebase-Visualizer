@@ -165,6 +165,7 @@ def _normalize_file_records(file_nodes: list[FileNode]) -> list[FileNodeOut]:
             line_count=node.line_count,
             import_count=node.import_count,
             ai_summary=node.ai_summary,
+            ai_summary_detail=node.ai_summary_detail,
             ai_complexity=node.ai_complexity,
             ai_role=node.ai_role,
         )

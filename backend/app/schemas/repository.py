@@ -23,6 +23,7 @@ class FileNodeOut(BaseModel):
     line_count: int
     import_count: int
     ai_summary: str | None
+    ai_summary_detail: str | None
     ai_complexity: str | None
     ai_role: str | None
 

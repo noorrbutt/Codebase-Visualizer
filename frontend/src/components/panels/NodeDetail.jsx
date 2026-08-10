@@ -64,6 +64,7 @@ export default function NodeDetail({ node, edges, repoId, repoOwner, repoName, r
   const [analysis, setAnalysis] = useState(null);
   const [loadingAnalysis, setLoadingAnalysis] = useState(false);
   const [analysisError, setAnalysisError] = useState(null);
+  const [showSummaryDetail, setShowSummaryDetail] = useState(false);
 
   if (!node) return null;
 
@@ -92,7 +93,7 @@ export default function NodeDetail({ node, edges, repoId, repoOwner, repoName, r
   }
 
   async function fetchAnalysis() {
-    if (analysis !== null || node.ai_summary) return;
+    if (analysis !== null || (node.ai_summary && node.ai_summary_detail)) return;
     setLoadingAnalysis(true);
     setAnalysisError(null);
 
@@ -134,6 +135,7 @@ export default function NodeDetail({ node, edges, repoId, repoOwner, repoName, r
 
   const effectiveAnalysis = analysis || (node.ai_summary ? {
     ai_summary: node.ai_summary,
+    ai_summary_detail: node.ai_summary_detail,
     ai_complexity: node.ai_complexity,
     ai_role: node.ai_role,
   } : null);
@@ -305,17 +307,53 @@ export default function NodeDetail({ node, edges, repoId, repoOwner, repoName, r
                   )}
                 </div>
                 {effectiveAnalysis.ai_summary && (
-                  <p
-                    style={{
-                      fontFamily: "'DM Sans', sans-serif",
-                      fontSize: 12,
-                      color: "#4B5563",
-                      lineHeight: 1.65,
-                      margin: 0,
-                    }}
-                  >
-                    {effectiveAnalysis.ai_summary}
-                  </p>
+                  <div>
+                    <p
+                      style={{
+                        fontFamily: "'DM Sans', sans-serif",
+                        fontSize: 12,
+                        color: "#4B5563",
+                        lineHeight: 1.65,
+                        margin: 0,
+                      }}
+                    >
+                      {effectiveAnalysis.ai_summary}
+                    </p>
+                    {effectiveAnalysis.ai_summary_detail && (
+                      <div style={{ marginTop: 8 }}>
+                        <p
+                          style={{
+                            fontFamily: "'DM Sans', sans-serif",
+                            fontSize: 12,
+                            color: "#4B5563",
+                            lineHeight: 1.65,
+                            margin: 0,
+                            display: showSummaryDetail ? "block" : "-webkit-box",
+                            WebkitLineClamp: showSummaryDetail ? "none" : 3,
+                            WebkitBoxOrient: "vertical",
+                            overflow: "hidden",
+                          }}
+                        >
+                          {effectiveAnalysis.ai_summary_detail}
+                        </p>
+                        <button
+                          onClick={() => setShowSummaryDetail((value) => !value)}
+                          style={{
+                            marginTop: 6,
+                            background: "none",
+                            border: "none",
+                            color: "#2563EB",
+                            cursor: "pointer",
+                            fontFamily: "'DM Sans', sans-serif",
+                            fontSize: 12,
+                            padding: 0,
+                          }}
+                        >
+                          {showSummaryDetail ? "Show less" : "Read more"}
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
             )}

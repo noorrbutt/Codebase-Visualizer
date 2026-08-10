@@ -291,6 +291,7 @@ def test_ai_service_retries_only_on_actual_rate_limit_errors(monkeypatch):
             raise FakeRateLimitError()
         return {
             "summary": "ok",
+            "summary_detail": "This file is a simple test stub that verifies retry behavior. It simulates a Groq rate limit error twice before returning a valid result. This lets the service exercise retry delays and timeout handling.",
             "complexity": "low",
             "role": "utility",
         }
@@ -312,7 +313,9 @@ def test_ai_service_requests_structured_json_output(monkeypatch):
 
     def fake_create(*args, **kwargs):
         captured_kwargs.update(kwargs)
-        return DummyGroqResponse('{"summary":"ok","complexity":"low","role":"utility"}')
+        return DummyGroqResponse(
+            '{"summary":"ok","summary_detail":"A simple test response with an extended summary detail field.","complexity":"low","role":"utility"}'
+        )
 
     service.client = DummyGroqClient(fake_create)
 
@@ -320,6 +323,7 @@ def test_ai_service_requests_structured_json_output(monkeypatch):
 
     assert result == {
         "summary": "ok",
+        "summary_detail": "A simple test response with an extended summary detail field.",
         "complexity": "low",
         "role": "utility",
     }
