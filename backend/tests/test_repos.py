@@ -276,6 +276,38 @@ def test_analyze_rejects_duplicate_in_progress_request_for_same_repo(client, mon
     assert second_response.json()["detail"] == "Repository analysis is already in progress"
 
 
+def test_concurrent_analyze_requests_one_succeeds(client, monkeypatch):
+    monkeypatch.setattr(
+        repos_module.github_service, "parse_repo_url", lambda url: ("octocat", "hello-world")
+    )
+    monkeypatch.setattr(
+        repos_module.github_service,
+        "get_repo_metadata",
+        lambda owner, repo: {"default_branch": "main"},
+    )
+    monkeypatch.setattr(repos_module.repo_rate_limiter, "allow", lambda ip: True)
+    monkeypatch.setattr(repos_module, "_build_repo_analysis_with_timeout", lambda *args, **kwargs: None)
+
+    from concurrent.futures import ThreadPoolExecutor
+
+    url = "https://github.com/octocat/hello-world"
+
+    def do_post():
+        return client.post(
+            "/repos/analyze", json={"github_url": url}, headers={"X-API-Key": "test-api-key"}
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as ex:
+        futures = [ex.submit(do_post) for _ in range(2)]
+        responses = [f.result() for f in futures]
+
+    codes = sorted([r.status_code for r in responses])
+    assert codes == [200, 409]
+
+    with database_module.SessionLocal() as db:
+        assert db.query(Repository).filter(Repository.github_url == url).count() == 1
+
+
 def test_analyze_rejects_when_rate_limited(client, monkeypatch):
     monkeypatch.setattr(repos_module.repo_rate_limiter, "allow", lambda ip: False)
 

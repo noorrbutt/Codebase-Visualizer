@@ -10,6 +10,7 @@ import app.main as main_module
 
 def test_raises_in_production_when_api_key_missing(monkeypatch):
     monkeypatch.setattr(main_module, "create_tables", lambda: None)
+    monkeypatch.setattr(main_module, "resume_pending_repo_analyses", lambda: None)
     monkeypatch.setattr(main_module.settings, "APP_ENV", "production")
     monkeypatch.setattr(main_module.settings, "API_KEY", None)
 
@@ -23,6 +24,7 @@ def test_raises_in_production_when_api_key_missing(monkeypatch):
 
 def test_no_raise_in_development_when_api_key_missing(monkeypatch):
     monkeypatch.setattr(main_module, "create_tables", lambda: None)
+    monkeypatch.setattr(main_module, "resume_pending_repo_analyses", lambda: None)
     monkeypatch.setattr(main_module.settings, "APP_ENV", "development")
     monkeypatch.setattr(main_module.settings, "API_KEY", None)
 

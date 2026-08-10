@@ -7,6 +7,7 @@ from pathlib import Path, PurePosixPath
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 
 from app.api.dependencies import _require_api_key
 from app.database import SessionLocal, get_db
@@ -429,6 +430,9 @@ async def analyze_repo(
         metadata = github_service.get_repo_metadata(owner, repo_name)
         branch = metadata.get("default_branch", "main")
 
+        # Early check for an existing parsing repo. A stricter DB-level unique
+        # constraint is also in place; we'll re-check the row right before
+        # deleting it to close the race window.
         existing = db.query(Repository).filter(Repository.github_url == repo_key).first()
         if existing and existing.status == "parsing":
             raise HTTPException(status_code=409, detail="Repository analysis is already in progress")
@@ -443,19 +447,34 @@ async def analyze_repo(
         )
 
         try:
-            if existing:
-                db.query(FileEdgeModel).filter(FileEdgeModel.repo_id == existing.id).delete()
-                db.query(FileNode).filter(FileNode.repo_id == existing.id).delete()
-                db.delete(existing)
+            # Re-query the repository inside the same DB transaction right before
+            # any destructive actions to ensure the status hasn't changed since
+            # the earlier check (closing a small race window).
+            requery = db.query(Repository).filter(Repository.github_url == repo_key).first()
+            if requery and requery.status == "parsing":
+                raise HTTPException(status_code=409, detail="Repository analysis is already in progress")
+
+            if requery:
+                db.query(FileEdgeModel).filter(FileEdgeModel.repo_id == requery.id).delete()
+                db.query(FileNode).filter(FileNode.repo_id == requery.id).delete()
+                db.delete(requery)
                 db.flush()
 
             db.add(repo)
-            db.flush()
+            try:
+                db.flush()
+            except IntegrityError:
+                # Another concurrent request inserted the same github_url — treat
+                # as a conflict indicating analysis is already in progress.
+                db.rollback()
+                raise HTTPException(status_code=409, detail="Repository analysis is already in progress")
 
             # Claim the repo row before the global slot is checked so the repo-specific
             # lock is the first coordination primitive to be taken.
             _claim_repo_lock(repo)
             db.commit()
+        except HTTPException:
+            raise
         except Exception as exc:
             db.rollback()
             logger.error("Failed to save repository {}: {}", repo_key, exc)
