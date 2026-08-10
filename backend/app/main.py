@@ -26,6 +26,26 @@ from app.logging import get_logger
 logger = get_logger(__name__)
 
 
+def _validate_production_settings(settings) -> None:
+    # Validate API_KEY presence
+    if settings.API_KEY is None:
+        if settings.APP_ENV == "production":
+            raise RuntimeError("API_KEY must be set when APP_ENV=production")
+        else:
+            logger.warning("auth disabled - dev mode only")
+
+    # Validate GITHUB_TOKEN presence
+    if not settings.GITHUB_TOKEN:
+        if settings.APP_ENV == "production":
+            raise RuntimeError(
+                "GITHUB_TOKEN must be set when APP_ENV=production to avoid shared 60req/hr GitHub limit"
+            )
+        else:
+            logger.warning(
+                "no GITHUB_TOKEN set - limited to 60 GitHub requests/hr, fine for local testing only"
+            )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info(
@@ -33,12 +53,8 @@ async def lifespan(app: FastAPI):
         settings.APP_ENV,
         settings.TRUST_PROXY_HEADERS,
     )
-    # Guard config: require API key in production, warn in non-production when API key is unset
-    if settings.API_KEY is None:
-        if settings.APP_ENV == "production":
-            raise RuntimeError("API_KEY must be set when APP_ENV=production")
-        else:
-            logger.warning("auth disabled - dev mode only")
+    # Validate production-sensitive settings (API key and GitHub token)
+    _validate_production_settings(settings)
 
     create_tables()
     initialize_repo_analysis_concurrency_gate()
