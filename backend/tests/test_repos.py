@@ -501,7 +501,9 @@ def test_resume_pending_repo_analyses_schedules_background_tasks(tmp_path, monke
 
     monkeypatch.setattr(repos_module.asyncio, "get_running_loop", lambda: FakeTaskLoop())
 
-    repos_module.resume_pending_repo_analyses()
+    import asyncio
+
+    asyncio.run(repos_module.resume_pending_repo_analyses())
 
     assert len(scheduled) == 1
 
@@ -605,10 +607,114 @@ def test_resume_pending_repo_analyses_claims_and_skips(tmp_path, monkeypatch):
         repos_module, "settings", repos_module.settings.__class__(RECLAIM_LOCK_AFTER_SECONDS=60)
     )
 
-    repos_module.resume_pending_repo_analyses()
+    import asyncio
+
+    asyncio.run(repos_module.resume_pending_repo_analyses())
 
     # only the stale record should have been scheduled
     assert len(scheduled) == 1
+
+
+def test_startup_reclaim_lock_skips_second_call(tmp_path, monkeypatch):
+    db_path = tmp_path / "pending_lock.db"
+    engine = create_engine(f"sqlite:///{db_path}", connect_args={"check_same_thread": False})
+    test_session_local = sessionmaker(
+        bind=engine, autoflush=False, autocommit=False, expire_on_commit=False
+    )
+
+    monkeypatch.setattr(database_module, "engine", engine)
+    monkeypatch.setattr(database_module, "SessionLocal", test_session_local)
+    monkeypatch.setattr(repos_module, "SessionLocal", test_session_local)
+
+    Base.metadata.create_all(bind=engine)
+
+    with test_session_local() as db:
+        db.add(
+            Repository(
+                github_url="https://github.com/octocat/lock",
+                repo_name="lock",
+                owner="octocat",
+                default_branch="main",
+                total_files=0,
+                status="parsing",
+            )
+        )
+        db.commit()
+
+    scheduled: list[tuple] = []
+
+    class FakeLoop:
+        def create_task(self, coro):
+            coro.close()
+            scheduled.append(coro)
+
+    monkeypatch.setattr(repos_module.asyncio, "get_running_loop", lambda: FakeLoop())
+
+    # Make RedisMutex.acquire return a token on first call, None on second.
+    side = ["token", None]
+
+    async def fake_acquire(self, name, timeout=20.0, poll_interval=0.2):
+        return side.pop(0)
+
+    async def fake_release(self, name, token):
+        return None
+
+    monkeypatch.setattr(repos_module.RedisMutex, "acquire", fake_acquire)
+    monkeypatch.setattr(repos_module.RedisMutex, "release", fake_release)
+
+    import asyncio
+
+    asyncio.run(repos_module.resume_pending_repo_analyses())
+    asyncio.run(repos_module.resume_pending_repo_analyses())
+
+    assert len(scheduled) == 1
+
+
+def test_resume_pending_repo_analyses_logs_when_no_running_loop(tmp_path, monkeypatch):
+    db_path = tmp_path / "pending_noloop.db"
+    engine = create_engine(f"sqlite:///{db_path}", connect_args={"check_same_thread": False})
+    test_session_local = sessionmaker(
+        bind=engine, autoflush=False, autocommit=False, expire_on_commit=False
+    )
+
+    monkeypatch.setattr(database_module, "engine", engine)
+    monkeypatch.setattr(database_module, "SessionLocal", test_session_local)
+    monkeypatch.setattr(repos_module, "SessionLocal", test_session_local)
+
+    Base.metadata.create_all(bind=engine)
+
+    with test_session_local() as db:
+        db.add(
+            Repository(
+                github_url="https://github.com/octocat/noloop",
+                repo_name="noloop",
+                owner="octocat",
+                default_branch="main",
+                total_files=0,
+                status="parsing",
+            )
+        )
+        db.commit()
+
+    # Simulate no running loop when scheduling
+    def raise_runtime():
+        raise RuntimeError()
+
+    monkeypatch.setattr(repos_module.asyncio, "get_running_loop", lambda: (_ for _ in ()).throw(RuntimeError()))
+
+    async def fake_acquire(self, name, timeout=20.0, poll_interval=0.2):
+        return "token"
+
+    async def fake_release(self, name, token):
+        return None
+
+    monkeypatch.setattr(repos_module.RedisMutex, "acquire", fake_acquire)
+    monkeypatch.setattr(repos_module.RedisMutex, "release", fake_release)
+
+    import asyncio
+
+    # Should not raise despite no running loop
+    asyncio.run(repos_module.resume_pending_repo_analyses())
 
 
 def test_resume_pending_repo_analyses_reclaims_crashed_worker_lock_after_timeout(
@@ -657,7 +763,9 @@ def test_resume_pending_repo_analyses_reclaims_crashed_worker_lock_after_timeout
 
     monkeypatch.setattr(repos_module.asyncio, "get_running_loop", lambda: FakeTaskLoop())
 
-    repos_module.resume_pending_repo_analyses()
+    import asyncio
+
+    asyncio.run(repos_module.resume_pending_repo_analyses())
 
     assert len(scheduled) == 1
 
