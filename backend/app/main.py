@@ -33,6 +33,13 @@ async def lifespan(app: FastAPI):
         settings.APP_ENV,
         settings.TRUST_PROXY_HEADERS,
     )
+    # Guard config: require API key in production, warn in non-production when API key is unset
+    if settings.API_KEY is None:
+        if settings.APP_ENV == "production":
+            raise RuntimeError("API_KEY must be set when APP_ENV=production")
+        else:
+            logger.warning("auth disabled - dev mode only")
+
     create_tables()
     initialize_repo_analysis_concurrency_gate()
     logger.info("Database tables ready")
