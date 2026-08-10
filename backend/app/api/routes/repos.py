@@ -349,9 +349,11 @@ async def _build_repo_analysis_with_timeout(
 
 async def resume_pending_repo_analyses() -> None:
     # Try to acquire a global startup reclaim lock so multiple workers
-    # don't race to reclaim the same stale repos simultaneously.
-    startup_mutex = RedisMutex(key_prefix="startup_reclaim_lock", ttl_seconds=60, redis_client=repo_lock_manager._redis_client)
-    token = await startup_mutex.acquire("reclaim", timeout=0)
+    # don't race to reclaim the same stale repos simultaneously. Reuse the
+    # module-level `repo_lock_manager` so tests can monkeypatch it with an
+    # in-memory fake Redis client.
+    startup_mutex = repo_lock_manager
+    token = await startup_mutex.acquire("startup_reclaim_lock", timeout=0)
     if token is None:
         # Another worker is already reclaiming; skip.
         logger.info("Startup reclaim skipped because another worker holds the startup_reclaim_lock")
@@ -406,7 +408,7 @@ async def resume_pending_repo_analyses() -> None:
         logger.info("Resume pending analyses summary: reclaimed={} skipped={}", reclaimed, skipped)
     finally:
         db.close()
-        await startup_mutex.release("reclaim", token)
+        await startup_mutex.release("startup_reclaim_lock", token)
 
 
 @router.post("/analyze", response_model=AnalyzeResponse, dependencies=[Depends(_require_api_key)])
