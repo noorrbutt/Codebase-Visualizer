@@ -21,6 +21,18 @@ from app.services.coordination import RedisConcurrencyGate, RedisMutex
 from tests.conftest import InMemoryRedis
 
 
+# Fake startup mutex used in reclaim tests to allow reclaim to proceed
+class FakeStartupMutex:
+    def __init__(self, *args, **kwargs):
+        pass
+
+    async def acquire(self, name, timeout=0, poll_interval=0.2):
+        return "token"
+
+    async def release(self, name, token):
+        return None
+
+
 @pytest.fixture()
 def client(tmp_path, monkeypatch):
     db_path = tmp_path / "test.db"
@@ -503,6 +515,9 @@ def test_resume_pending_repo_analyses_schedules_background_tasks(tmp_path, monke
 
     import asyncio
 
+    # Ensure the startup mutex allows reclaim to proceed
+    monkeypatch.setattr(repos_module, "RedisMutex", FakeStartupMutex)
+
     asyncio.run(repos_module.resume_pending_repo_analyses())
 
     assert len(scheduled) == 1
@@ -608,6 +623,9 @@ def test_resume_pending_repo_analyses_claims_and_skips(tmp_path, monkeypatch):
     )
 
     import asyncio
+
+    # Ensure the startup mutex allows reclaim to proceed
+    monkeypatch.setattr(repos_module, "RedisMutex", FakeStartupMutex)
 
     asyncio.run(repos_module.resume_pending_repo_analyses())
 
@@ -764,6 +782,9 @@ def test_resume_pending_repo_analyses_reclaims_crashed_worker_lock_after_timeout
     monkeypatch.setattr(repos_module.asyncio, "get_running_loop", lambda: FakeTaskLoop())
 
     import asyncio
+
+    # Ensure the startup mutex allows reclaim to proceed
+    monkeypatch.setattr(repos_module, "RedisMutex", FakeStartupMutex)
 
     asyncio.run(repos_module.resume_pending_repo_analyses())
 
