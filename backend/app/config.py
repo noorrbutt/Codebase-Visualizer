@@ -20,8 +20,8 @@ class Settings(BaseSettings):
     RECLAIM_LOCK_AFTER_SECONDS: int = 600
     AI_MAX_REQUESTS_PER_HOUR: int = 60
     AI_MAX_REQUESTS_PER_DAY: int = 200
-    AI_MAX_CLIENT_REQUESTS_PER_HOUR: int = 10
-    AI_MAX_CLIENT_REQUESTS_PER_DAY: int = 40
+    AI_MAX_CLIENT_REQUESTS_PER_HOUR: int = 1000
+    AI_MAX_CLIENT_REQUESTS_PER_DAY: int = 4000
 
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod
