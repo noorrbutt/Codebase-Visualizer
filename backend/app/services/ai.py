@@ -139,14 +139,14 @@ class AIService:
                 "Analyze the following source file and return ONLY a JSON object with exactly these keys: "
                 "summary, summary_detail, complexity, role. "
                 "summary: 2 sentences, plain-English, what this file does. "
-                "summary_detail: 1 paragraph, 4-5 sentences or more, covering key functions/classes, how this file connects to other parts of the codebase, and any notable complexity or design choices. "
+                "summary_detail: exactly 3 sentences, no more, covering key functions/classes, how this file connects to other parts of the codebase, and any notable complexity or design choices. "
                 "complexity: one of low/medium/high. "
                 "role: one of entry_point/api_router/data_model/service/utility/config/test/static/unknown. "
                 "Return nothing else — no markdown, no explanation, just the JSON object. "
                 f"File: {file_path}. Content:\n{snippet}"
             )}],
             response_format={"type": "json_object"},
-            max_tokens=550,
+            max_tokens=900,
             temperature=0.3,
         )
         raw_text = response.choices[0].message.content.strip()
@@ -183,6 +183,23 @@ class AIService:
 
         return False
 
+    def _is_json_validate_error(self, exc: Exception) -> bool:
+        # Some Groq errors surface as exceptions with a `body` attribute
+        # containing {'error': {'code': 'json_validate_failed'}}. Others
+        # may include the code in the text message. Treat these as
+        # retryable so a truncated JSON can be retried.
+        body = getattr(exc, "body", None)
+        if isinstance(body, dict):
+            code = body.get("error", {}).get("code")
+            if code == "json_validate_failed":
+                return True
+
+        msg = str(exc)
+        if "json_validate_failed" in msg or "json_validate" in msg:
+            return True
+
+        return False
+
     async def analyze_file(
         self,
         file_path: str,
@@ -215,7 +232,8 @@ class AIService:
                     raise AIServiceError(f"AI file analysis timed out after {timeout_seconds}s") from exc
             except Exception as exc:
                 last_exc = exc
-                if not self._is_retryable_rate_limit_error(exc) or attempt == 2:
+                retryable = self._is_retryable_rate_limit_error(exc) or self._is_json_validate_error(exc)
+                if not retryable or attempt == 2:
                     raise AIServiceError(str(exc)) from exc
 
             remaining = deadline - loop.time()
