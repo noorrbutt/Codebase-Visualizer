@@ -1,4 +1,5 @@
 from pydantic import field_validator
+from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -6,7 +7,9 @@ class Settings(BaseSettings):
     GROQ_API_KEY: str | None = None
     # Server-side only: keep this out of browser code and public routes.
     API_KEY: str | None = None
-    DATABASE_URL: str = "sqlite:///./codebase_visualizer.db"
+    # Default to a DB file placed inside the backend directory regardless of cwd.
+    _default_db_path = Path(__file__).resolve().parent.parent / "codebase_visualizer.db"
+    DATABASE_URL: str = f"sqlite:///{_default_db_path.as_posix()}"
     GITHUB_TOKEN: str | None = None
     REDIS_URL: str = "redis://localhost:6379/0"
     APP_ENV: str = "development"
