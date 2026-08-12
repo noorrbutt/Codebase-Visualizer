@@ -5,6 +5,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from urllib.parse import urlparse
+import urllib.parse
 
 import requests
 
@@ -213,8 +214,9 @@ class GithubService:
         # Branch names currently come from GitHub metadata responses, but this validation
         # provides defense in depth if future callers pass a custom branch value.
         self._validate_branch(branch)
-
-        url = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{path}"
+        # Percent-encode the file path to ensure spaces, #, %, unicode, etc. are safe in the URL.
+        encoded_path = urllib.parse.quote(path, safe="/")
+        url = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{encoded_path}"
         logger.info("Fetching raw file content: {}", url)
         response = self._request_with_retry(url)
         response.raise_for_status()
