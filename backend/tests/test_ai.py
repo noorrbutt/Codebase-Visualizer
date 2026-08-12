@@ -89,8 +89,16 @@ def test_analyze_file_retries_on_malformed_json(monkeypatch):
 
     service.client = type("C", (), {"chat": Chat()})()
 
-    result = asyncio.run(service.analyze_file("/tmp/file.py", "print(\"hi\")\n" * 10))
-    assert create_calls["count"] == 2
+    try:
+        asyncio.run(service.analyze_file("/tmp/file.py", "print(\"hi\")\n" * 10))
+        assert False, "Expected AIServiceError"
+    except Exception as exc:
+        # Malformed model output should not be retried by default
+        assert create_calls["count"] == 1
+        from app.exceptions import AIServiceError
+
+        assert isinstance(exc, AIServiceError)
+        assert "invalid_json" in str(exc)
 
 
 def test_analyze_file_does_not_retry_on_unrelated_exception(monkeypatch):

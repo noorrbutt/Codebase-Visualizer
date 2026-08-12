@@ -184,9 +184,11 @@ class AIService:
         return False
 
     def _is_json_validate_error(self, exc: Exception) -> bool:
-        # Treat our typed malformed response error as retryable first.
-        if isinstance(exc, AIMalformedResponseError):
-            return True
+        # Do not treat AIMalformedResponseError as automatically retryable.
+        # Some malformed responses are non-retryable (model produced garbage),
+        # while others may come from the provider indicating a transient validation
+        # failure. We keep the original string/body checks below to detect the
+        # latter cases.
 
         # Some Groq errors surface as exceptions with a `body` attribute
         # containing {'error': {'code': 'json_validate_failed'}}. Others
