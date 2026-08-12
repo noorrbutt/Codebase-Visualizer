@@ -39,3 +39,12 @@ class AIServiceError(Exception):
 
     def __str__(self) -> str:
         return f"AI service failure: {self.message}"
+
+
+class AIMalformedResponseError(AIServiceError):
+    """Raised when the AI returns malformed or incomplete JSON that cannot be parsed
+    or is missing required keys.
+    This remains an AIServiceError for compatibility but can be type-checked
+    to distinguish malformed responses from other errors.
+    """
+    pass

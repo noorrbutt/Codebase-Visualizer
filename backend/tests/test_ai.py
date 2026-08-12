@@ -54,3 +54,69 @@ def test_analyze_file_retries_on_json_validate(monkeypatch):
     assert captured_kwargs[0]["max_tokens"] == 900
     assert result["summary"] == "s"
     assert result["complexity"] == "low"
+
+
+def test_analyze_file_retries_on_malformed_json(monkeypatch):
+    service = AIService()
+    service._redis_client = InMemoryRedis()
+
+    create_calls = {"count": 0}
+
+    class FakeResponse:
+        def __init__(self, text):
+            class Msg:
+                def __init__(self, content):
+                    self.content = content
+
+            class Choice:
+                def __init__(self, msg):
+                    self.message = msg
+
+            self.choices = [Choice(Msg(text))]
+
+    def fake_create(*args, **kwargs):
+        create_calls["count"] += 1
+        if create_calls["count"] == 1:
+            # return truncated/invalid JSON to trigger JSONDecodeError -> AIMalformedResponseError
+            return FakeResponse('{"summary": "s",')
+        return FakeResponse('{"summary":"s","summary_detail":"d","complexity":"low","role":"utility"}')
+
+    class Completions:
+        create = staticmethod(fake_create)
+
+    class Chat:
+        completions = Completions()
+
+    service.client = type("C", (), {"chat": Chat()})()
+
+    result = asyncio.run(service.analyze_file("/tmp/file.py", "print(\"hi\")\n" * 10))
+    assert create_calls["count"] == 2
+
+
+def test_analyze_file_does_not_retry_on_unrelated_exception(monkeypatch):
+    service = AIService()
+    service._redis_client = InMemoryRedis()
+
+    create_calls = {"count": 0}
+
+    def fake_create(*args, **kwargs):
+        create_calls["count"] += 1
+        raise ValueError("unexpected failure")
+
+    class Completions:
+        create = staticmethod(fake_create)
+
+    class Chat:
+        completions = Completions()
+
+    service.client = type("C", (), {"chat": Chat()})()
+
+    try:
+        asyncio.run(service.analyze_file("/tmp/file.py", "print(\"hi\")\n" * 10))
+        assert False, "Expected AIServiceError"
+    except Exception as exc:
+        # ensure we surfaced as AIServiceError and only one attempt was made
+        assert create_calls["count"] == 1
+        from app.exceptions import AIServiceError
+
+        assert isinstance(exc, AIServiceError)

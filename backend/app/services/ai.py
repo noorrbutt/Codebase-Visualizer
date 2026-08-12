@@ -8,7 +8,7 @@ from groq import Groq
 from redis import Redis
 
 from app.config import settings
-from app.exceptions import AIServiceError
+from app.exceptions import AIServiceError, AIMalformedResponseError
 from app.logging import get_logger
 from app.services.redis_client import get_redis_client
 
@@ -157,10 +157,10 @@ class AIService:
         try:
             parsed = json.loads(raw_text)
         except json.JSONDecodeError as exc:
-            raise Exception("invalid_json: " + raw_text[:120]) from exc
+            raise AIMalformedResponseError("invalid_json: " + raw_text[:120]) from exc
 
         if not all(key in parsed for key in ("summary", "summary_detail", "complexity", "role")):
-            raise Exception("missing_keys: " + str(list(parsed.keys())))
+            raise AIMalformedResponseError("missing_keys: " + str(list(parsed.keys())))
 
         return {
             "summary": str(parsed["summary"]),
@@ -184,6 +184,10 @@ class AIService:
         return False
 
     def _is_json_validate_error(self, exc: Exception) -> bool:
+        # Treat our typed malformed response error as retryable first.
+        if isinstance(exc, AIMalformedResponseError):
+            return True
+
         # Some Groq errors surface as exceptions with a `body` attribute
         # containing {'error': {'code': 'json_validate_failed'}}. Others
         # may include the code in the text message. Treat these as
