@@ -53,6 +53,10 @@ def _validate_production_settings(settings) -> None:
             "TRUST_PROXY_HEADERS=True - ensure a trusted reverse proxy strips client-supplied X-Forwarded-For before requests reach this app, otherwise IP rate limiting is trivially bypassed"
         )
 
+    # Disallow SQLite in production: it's only intended for local development.
+    if settings.APP_ENV == "production" and settings.DATABASE_URL.startswith("sqlite"):
+        raise RuntimeError("Postgres required in production, sqlite is dev-only")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

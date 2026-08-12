@@ -65,6 +65,8 @@ def test_no_raise_in_production_when_both_keys_present(monkeypatch):
     monkeypatch.setattr(main_module.settings, "APP_ENV", "production")
     monkeypatch.setattr(main_module.settings, "API_KEY", "present")
     monkeypatch.setattr(main_module.settings, "GITHUB_TOKEN", "present")
+    # Ensure DATABASE_URL is not sqlite for production in this test
+    monkeypatch.setattr(main_module.settings, "DATABASE_URL", "postgresql://user@localhost/db")
 
     async def runner():
         async with main_module.lifespan(FastAPI()):
