@@ -124,11 +124,26 @@ class AIService:
                 max_tokens=200,
                 temperature=0.7,
             )
-            summary = response.choices[0].message.content.strip()
+            message = response.choices[0].message
             usage = getattr(response, "usage", None)
             if usage is not None:
                 logger.info("AI repo summary usage: {}", usage)
+
+            # GROQ_MODEL is a reasoning model. Without a forced response_format
+            # (unlike _call_analyze_file, which uses response_format="json_object"),
+            # it can return its answer on a separate `reasoning` field and leave
+            # `content` empty or None. Fall back to `reasoning` before giving up,
+            # so a real answer isn't dropped just because it landed elsewhere.
+            summary = (message.content or "").strip()
+            if not summary:
+                summary = (getattr(message, "reasoning", None) or "").strip()
+
+            if not summary:
+                raise AIServiceError("Groq returned an empty repo summary")
+
             return summary
+        except AIServiceError:
+            raise
         except Exception as exc:
             raise AIServiceError(str(exc)) from exc
 

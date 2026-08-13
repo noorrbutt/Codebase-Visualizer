@@ -1,3 +1,5 @@
 frontend/.env
 *.db
 backend/*.db
+backend/codebase_visualizer.db-shm
+backend/codebase_visualizer.db-wal
