@@ -113,7 +113,9 @@ class AIService:
             "Write a 2-3 sentence plain-English summary as a senior developer explaining this repository to a teammate. "
             "Cover what the project does, the main technology or framework, and the core modules or areas of responsibility. "
             f"Base it only on the repository name and file structure: {repo_name}, files: {', '.join(file_list[:50])}. "
-            "Keep it factual and under 60 words."
+            "Keep it factual and under 60 words. "
+            'Return ONLY a JSON object with exactly one key, "summary", containing that text. '
+            "Return nothing else — no markdown, no explanation, just the JSON object."
         )
 
         logger.info("Sending repo summary prompt to Groq for {}", repo_name)
@@ -121,22 +123,27 @@ class AIService:
             response = self.client.chat.completions.create(
                 model=GROQ_MODEL,
                 messages=[{"role": "user", "content": prompt}],
+                # GROQ_MODEL is a reasoning model: without a forced response_format
+                # it can leave `content` empty and put its scratchpad reasoning in a
+                # separate `reasoning` field instead. Forcing json_object here mirrors
+                # _call_analyze_file, which reliably gets a clean answer in `content`.
+                response_format={"type": "json_object"},
                 max_tokens=200,
                 temperature=0.7,
             )
-            message = response.choices[0].message
+            raw_text = (response.choices[0].message.content or "").strip()
             usage = getattr(response, "usage", None)
             if usage is not None:
                 logger.info("AI repo summary usage: {}", usage)
 
-            # GROQ_MODEL is a reasoning model. Without a forced response_format
-            # (unlike _call_analyze_file, which uses response_format="json_object"),
-            # it can return its answer on a separate `reasoning` field and leave
-            # `content` empty or None. Fall back to `reasoning` before giving up,
-            # so a real answer isn't dropped just because it landed elsewhere.
-            summary = (message.content or "").strip()
-            if not summary:
-                summary = (getattr(message, "reasoning", None) or "").strip()
+            if not raw_text:
+                raise AIServiceError("Groq returned an empty repo summary")
+
+            try:
+                parsed = json.loads(raw_text)
+                summary = str(parsed["summary"]).strip()
+            except (json.JSONDecodeError, KeyError, TypeError) as exc:
+                raise AIMalformedResponseError("invalid_summary_json: " + raw_text[:120]) from exc
 
             if not summary:
                 raise AIServiceError("Groq returned an empty repo summary")
