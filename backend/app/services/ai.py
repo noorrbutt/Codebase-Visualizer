@@ -128,7 +128,11 @@ class AIService:
                 # separate `reasoning` field instead. Forcing json_object here mirrors
                 # _call_analyze_file, which reliably gets a clean answer in `content`.
                 response_format={"type": "json_object"},
-                max_tokens=200,
+                # 200 was too tight — the model spends part of the budget on internal
+                # reasoning before it ever emits JSON, so content came back empty and
+                # Groq returned json_validate_failed with no failed_generation at all.
+                # 900 matches _call_analyze_file, which works reliably.
+                max_tokens=900,
                 temperature=0.7,
             )
             raw_text = (response.choices[0].message.content or "").strip()
