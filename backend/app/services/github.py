@@ -122,6 +122,19 @@ class GithubService:
         if not _BRANCH_RE.fullmatch(branch):
             raise RepoParseError("branch name may only contain letters, numbers, underscore, dot, hyphen, or slash")
 
+    def _validate_file_path(self, path: str) -> None:
+        if not path:
+            raise RepoParseError("file path must not be empty")
+
+        if path.startswith("/"):
+            raise RepoParseError("file path may not start with '/'")
+
+        if "\x00" in path:
+            raise RepoParseError("file path may not contain null bytes")
+
+        if any(segment == ".." for segment in path.split("/")):
+            raise RepoParseError("file path may not contain '..' path segments")
+
     def _get_headers(self) -> dict:
         headers: dict[str, str] = {"Accept": "application/vnd.github+json"}
 
@@ -214,6 +227,7 @@ class GithubService:
         # Branch names currently come from GitHub metadata responses, but this validation
         # provides defense in depth if future callers pass a custom branch value.
         self._validate_branch(branch)
+        self._validate_file_path(path)
         # Percent-encode the file path to ensure spaces, #, %, unicode, etc. are safe in the URL.
         encoded_path = urllib.parse.quote(path, safe="/")
         url = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{encoded_path}"
