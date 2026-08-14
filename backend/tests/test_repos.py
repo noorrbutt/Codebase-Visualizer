@@ -148,14 +148,40 @@ def test_analyze_status_and_detail_flow(client, monkeypatch):
         db.add(FileEdge(repo_id=repo_id, source="src/app.py", target="src/utils.py"))
         db.commit()
 
-    status_response = client.get(f"/repos/{repo_id}/status")
-    detail_response = client.get(f"/repos/{repo_id}")
+    status_response = client.get(f"/repos/{repo_id}/status", headers={"X-API-Key": "test-api-key"})
+    detail_response = client.get(f"/repos/{repo_id}", headers={"X-API-Key": "test-api-key"})
 
     assert status_response.status_code == 200
     assert status_response.json() == {"status": "ready"}
     assert detail_response.status_code == 200
     assert detail_response.json()["nodes"][0]["path"] == "src/app.py"
     assert detail_response.json()["edges"][0]["source"] == "src/app.py"
+
+
+def test_get_repo_requires_api_key_when_configured(client):
+    with database_module.SessionLocal() as db:
+        repo = Repository(
+            owner="octocat",
+            repo_name="hello-world",
+            github_url="https://github.com/octocat/hello-world",
+            default_branch="main",
+            status="ready",
+        )
+        db.add(repo)
+        db.commit()
+        repo_id = repo.id
+
+    response = client.get(f"/repos/{repo_id}")
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Invalid API key"
+
+
+def test_list_repos_requires_api_key_when_configured(client):
+    response = client.get("/repos/")
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Invalid API key"
 
 
 def test_analyze_rejects_missing_api_key(client, monkeypatch):

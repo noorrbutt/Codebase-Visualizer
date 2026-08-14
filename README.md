@@ -142,7 +142,7 @@ npm run dev
 
 Open the Vite dev server (usually `http://localhost:5173`). Set `VITE_API_URL` in `frontend/.env` if the backend runs on a different host/port.
 
-The frontend does not rely on a secret client-side credential — browser code is public, so abuse control comes from backend IP rate limiting rather than a client-side API key.
+The frontend does not rely on a secret client-side credential — browser code is public, so abuse control comes from backend IP rate limiting rather than a client-side API key. When `API_KEY` is configured, repo read endpoints also require the same `X-API-Key` header sent by the browser.
 
 ## API reference
 
@@ -151,9 +151,9 @@ Full interactive schema is available at `/docs` once the backend is running. Sum
 | Method | Endpoint | Description | Auth |
 |---|---|---|---|
 | `POST` | `/repos/analyze` | Queue analysis of a public GitHub repo (`{"github_url": "..."}`). Returns the created repo record; graph data populates asynchronously. | `X-API-Key` (if `API_KEY` is set) |
-| `GET` | `/repos/` | List all previously analyzed repositories. | none |
-| `GET` | `/repos/{repo_id}` | Fetch a repo's full graph (nodes + edges) and status. | none |
-| `GET` | `/repos/{repo_id}/status` | Poll analysis status (`parsing` / `ready` / `failed`). | none |
+| `GET` | `/repos/` | List all previously analyzed repositories. | `X-API-Key` (if `API_KEY` is set) |
+| `GET` | `/repos/{repo_id}` | Fetch a repo's full graph (nodes + edges) and status. | `X-API-Key` (if `API_KEY` is set) |
+| `GET` | `/repos/{repo_id}/status` | Poll analysis status (`parsing` / `ready` / `failed`). | `X-API-Key` (if `API_KEY` is set) |
 | `POST` | `/files/analyze` | Trigger/retrieve AI analysis (summary, complexity, role) for a single file in an analyzed repo. | `X-API-Key` (if `API_KEY` is set) |
 | `GET` | `/health` | Liveness check. | none |
 | `GET` | `/health/ready` | Readiness check — verifies DB and Redis connectivity. | none |
@@ -184,7 +184,7 @@ The suite covers import parsing (`test_parser.py`, `test_import_resolution.py`),
 | `DATABASE_URL` | No | Database connection string. Defaults to a local SQLite file. Production deployments should point this to PostgreSQL — SQLite will not handle concurrent background writes well. |
 | `REDIS_URL` | No | Redis connection string for rate limiting and repo-analysis coordination. Defaults to `redis://localhost:6379/0`. |
 | `GITHUB_TOKEN` | No | Optional GitHub Personal Access Token — raises GitHub API rate limits from 60/hr to 5000/hr. |
-| `API_KEY` | No | Server-side key required on `X-API-Key` for write endpoints. Not a real secret once shipped to the browser — deters casual abuse only; pair with infra-level rate limiting in production. |
+| `API_KEY` | No | Server-side key required on `X-API-Key` for repo read/write endpoints when set. Not a real secret once shipped to the browser — deters casual abuse only; pair with infra-level rate limiting in production. |
 | `VITE_API_URL` | No | Frontend-only backend base URL for local development. Not an auth boundary. |
 | `VITE_API_KEY` | No | Sent as `X-API-Key` from the browser; mirrors `API_KEY` if set. |
 | `RATE_LIMIT_REQUESTS_PER_MINUTE` | No | Per-IP request cap for public endpoints. |

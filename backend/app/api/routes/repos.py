@@ -533,7 +533,7 @@ async def analyze_repo(
         await repo_lock_manager.release(repo_key, lock_token)
 
 
-@router.get("/{repo_id}/status")
+@router.get("/{repo_id}/status", dependencies=[Depends(_require_api_key)])
 def get_repo_status(repo_id: int, db: Session = Depends(get_db)) -> dict[str, str]:
     repo = db.query(Repository).filter(Repository.id == repo_id).first()
     if repo is None:
@@ -541,7 +541,7 @@ def get_repo_status(repo_id: int, db: Session = Depends(get_db)) -> dict[str, st
     return {"status": repo.status}
 
 
-@router.get("/", response_model=list[RepoListItem])
+@router.get("/", response_model=list[RepoListItem], dependencies=[Depends(_require_api_key)])
 def list_repos(db: Session = Depends(get_db)) -> list[RepoListItem]:
     repos = db.query(Repository).order_by(Repository.created_at.desc()).all()
     return [
@@ -558,7 +558,7 @@ def list_repos(db: Session = Depends(get_db)) -> list[RepoListItem]:
     ]
 
 
-@router.get("/{repo_id}", response_model=AnalyzeResponse)
+@router.get("/{repo_id}", response_model=AnalyzeResponse, dependencies=[Depends(_require_api_key)])
 def get_repo(repo_id: int, db: Session = Depends(get_db)) -> AnalyzeResponse:
     repo = db.query(Repository).filter(Repository.id == repo_id).first()
     if repo is None:

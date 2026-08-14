@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import DashboardPage from "./DashboardPage";
-import { API, getLangColor } from "./utils/lang";
+import { getLangColor } from "./utils/lang";
 import { apiFetch } from "./utils/api";
 
 function HomePage({ onAnalyze, loading, externalError, onClearError }) {
@@ -164,7 +164,7 @@ export default function App() {
 
   const fetchRepo = async (id) => {
     try {
-      const res = await fetch(`${API}/repos/${id}`);
+      const res = await apiFetch(`/repos/${id}`);
       if (!res.ok) throw new Error("Could not load repository");
       const json = await res.json();
       setData(json);
@@ -182,7 +182,7 @@ export default function App() {
     clearInterval(pollRef.current);
     pollRef.current = setInterval(async () => {
       try {
-        const res = await fetch(`${API}/repos/${id}/status`);
+        const res = await apiFetch(`/repos/${id}/status`);
         if (!res.ok) throw new Error("Status request failed");
         const json = await res.json();
         setPollStatus(json.status);
