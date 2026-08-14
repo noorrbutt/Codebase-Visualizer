@@ -47,4 +47,3 @@ class AIMalformedResponseError(AIServiceError):
     This remains an AIServiceError for compatibility but can be type-checked
     to distinguish malformed responses from other errors.
     """
-    pass
