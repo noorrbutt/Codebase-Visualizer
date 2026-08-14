@@ -167,6 +167,21 @@ curl -X POST http://localhost:8000/repos/analyze \
   -d '{"github_url": "https://github.com/octocat/Hello-World"}'
 ```
 
+## Security
+
+Run the same dependency-audit checks locally before opening a PR:
+
+```bash
+cd backend
+pip install pip-audit
+pip-audit -r requirements.txt
+
+cd ../frontend
+npm audit --audit-level=high
+```
+
+These checks mirror the CI audits for known vulnerable Python and Node dependencies and fail on high/critical findings.
+
 ## Testing
 
 ```bash
