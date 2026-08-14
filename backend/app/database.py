@@ -52,3 +52,5 @@ def get_db() -> Generator[Session, None, None]:
 
 def create_tables() -> None:
     Base.metadata.create_all(bind=engine)
+
+

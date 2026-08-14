@@ -124,6 +124,8 @@ alembic upgrade head
 Run the development server:
 
 ```bash
+# Always apply migrations before starting the app
+alembic upgrade head
 uvicorn app.main:app --reload
 ```
 

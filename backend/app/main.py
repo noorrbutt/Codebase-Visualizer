@@ -68,9 +68,9 @@ async def lifespan(app: FastAPI):
     # Validate production-sensitive settings (API key and GitHub token)
     _validate_production_settings(settings)
 
-    create_tables()
+    logger.info("Startup assumes Alembic migrations have already been applied; run `alembic upgrade head` before starting the app")
     initialize_repo_analysis_concurrency_gate()
-    logger.info("Database tables ready")
+    logger.info("Database schema managed by Alembic; application startup continues")
     await resume_pending_repo_analyses()
     yield
 
