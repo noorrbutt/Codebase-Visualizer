@@ -13,7 +13,6 @@ from app.api.routes.repos import (
     router as repos_router,
 )
 from app.config import settings
-from app.database import create_tables
 from app.exceptions import (
     AIServiceError,
     GithubRateLimitError,
