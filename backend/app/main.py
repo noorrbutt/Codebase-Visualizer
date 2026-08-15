@@ -13,6 +13,7 @@ from app.api.routes.repos import (
     router as repos_router,
 )
 from app.config import settings
+from app.database import create_tables as _create_tables
 from app.exceptions import (
     AIServiceError,
     GithubRateLimitError,
@@ -23,6 +24,10 @@ from app.exceptions import (
 from app.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+def create_tables() -> None:
+    _create_tables()
 
 
 def _validate_production_settings(settings) -> None:
