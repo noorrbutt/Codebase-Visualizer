@@ -213,18 +213,10 @@ The suite covers import parsing (`test_parser.py`, `test_import_resolution.py`),
 
 ## Limitations & notes
 
-- Only public GitHub repositories are supported; private repos are not.
 - Public repository analysis is protected by server-side IP rate limiting, not a frontend-exposed secret.
 - AI requests are throttled and run in background tasks — large repositories take time and may hit rate limits.
-- No authentication, onboarding, or team/collaboration features are implemented — out of scope for this demo.
+- No authentication, onboarding, or team/collaboration features are implemented.
 
-## Production deployment
-
-- Don't rely on a frontend-exposed API key for protection — `VITE_API_KEY`/`API_KEY` deters casual abuse only, since it's visible in browser bundles.
-- Put `/repos/analyze` behind infrastructure-level rate limiting (Cloudflare, nginx `limit_req`, WAF/CDN rules).
-- Only set `TRUST_PROXY_HEADERS=true` behind a trusted reverse proxy that strips client-supplied `X-Forwarded-For`.
-- Set a `GITHUB_TOKEN` to avoid the unauthenticated 60 req/hr GitHub limit.
-- Use PostgreSQL via `DATABASE_URL`, not the default SQLite file.
 
 ## Contributing
 
