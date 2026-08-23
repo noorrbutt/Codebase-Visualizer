@@ -224,4 +224,4 @@ Issues and pull requests are welcome. Please run `pytest` (backend) and `npm run
 
 ## License
 
-This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
