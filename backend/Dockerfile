@@ -1,5 +1,5 @@
-# Matches CI (python-version 3.10). Build context is the backend/ directory.
-FROM python:3.10-slim
+# Keep in sync with the Python version in .github/workflows/ci.yml. Build context is backend/.
+FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -22,5 +22,9 @@ USER app
 ENV HOME=/home/app
 
 EXPOSE 7860
+
+# Restarts the container if the API stops answering. Readiness (DB/Redis) is at /health/ready.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+  CMD python -c "import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:7860/health', timeout=4).status == 200 else 1)"
 
 ENTRYPOINT ["/app/entrypoint.sh"]
