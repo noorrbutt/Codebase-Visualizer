@@ -141,15 +141,73 @@ def test_rate_limiter_window_expiry_allows_new_requests(monkeypatch):
     assert limiter.allow("203.0.113.2") is True
 
 
-def test_rate_limiter_uses_forwarded_for_header(monkeypatch):
-    monkeypatch.setattr(settings, "TRUST_PROXY_HEADERS", True)
+def _forwarded_request(header: str | None, client_host: str = "203.0.113.5"):
+    headers = {} if header is None else {"x-forwarded-for": header}
+    return SimpleNamespace(headers=headers, client=SimpleNamespace(host=client_host))
 
-    request = SimpleNamespace(
-        headers={"x-forwarded-for": "198.51.100.7, 10.0.0.1"},
-        client=SimpleNamespace(host="203.0.113.5"),
-    )
+
+def test_rate_limiter_uses_leftmost_forwarded_for_when_count_is_zero(monkeypatch):
+    monkeypatch.setattr(settings, "TRUST_PROXY_HEADERS", True)
+    monkeypatch.setattr(settings, "TRUSTED_PROXY_COUNT", 0)
+
+    request = _forwarded_request("198.51.100.7, 10.0.0.1")
 
     assert IPRateLimiter.resolve_client_ip(request) == "198.51.100.7"
+
+
+def test_rate_limiter_ignores_spoofed_leftmost_entry_with_count_one(monkeypatch):
+    monkeypatch.setattr(settings, "TRUST_PROXY_HEADERS", True)
+    monkeypatch.setattr(settings, "TRUSTED_PROXY_COUNT", 1)
+
+    # Client forged "1.2.3.4"; the trusted proxy appended the real client "198.51.100.7".
+    request = _forwarded_request("1.2.3.4, 198.51.100.7")
+
+    assert IPRateLimiter.resolve_client_ip(request) == "198.51.100.7"
+
+
+def test_rate_limiter_count_two_picks_entry_two_from_right(monkeypatch):
+    monkeypatch.setattr(settings, "TRUST_PROXY_HEADERS", True)
+    monkeypatch.setattr(settings, "TRUSTED_PROXY_COUNT", 2)
+
+    request = _forwarded_request("1.2.3.4, 198.51.100.7, 10.0.0.1")
+
+    assert IPRateLimiter.resolve_client_ip(request) == "198.51.100.7"
+
+
+def test_rate_limiter_strips_whitespace_around_entries(monkeypatch):
+    monkeypatch.setattr(settings, "TRUST_PROXY_HEADERS", True)
+    monkeypatch.setattr(settings, "TRUSTED_PROXY_COUNT", 1)
+
+    request = _forwarded_request("  1.2.3.4 ,   198.51.100.7  ")
+
+    assert IPRateLimiter.resolve_client_ip(request) == "198.51.100.7"
+
+
+def test_rate_limiter_falls_back_when_header_is_shorter_than_count(monkeypatch):
+    monkeypatch.setattr(settings, "TRUST_PROXY_HEADERS", True)
+    monkeypatch.setattr(settings, "TRUSTED_PROXY_COUNT", 2)
+
+    request = _forwarded_request("198.51.100.7")
+
+    assert IPRateLimiter.resolve_client_ip(request) == "203.0.113.5"
+
+
+def test_rate_limiter_falls_back_when_selected_entry_is_invalid(monkeypatch):
+    monkeypatch.setattr(settings, "TRUST_PROXY_HEADERS", True)
+    monkeypatch.setattr(settings, "TRUSTED_PROXY_COUNT", 1)
+
+    request = _forwarded_request("198.51.100.7, not-an-ip")
+
+    assert IPRateLimiter.resolve_client_ip(request) == "203.0.113.5"
+
+
+def test_rate_limiter_ignores_forwarded_for_when_flag_is_off(monkeypatch):
+    monkeypatch.setattr(settings, "TRUST_PROXY_HEADERS", False)
+    monkeypatch.setattr(settings, "TRUSTED_PROXY_COUNT", 1)
+
+    request = _forwarded_request("198.51.100.7")
+
+    assert IPRateLimiter.resolve_client_ip(request) == "203.0.113.5"
 
 
 def test_ai_service_enforces_budget_limits():
