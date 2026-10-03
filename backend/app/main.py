@@ -49,13 +49,20 @@ def _validate_production_settings(settings) -> None:
                 "no GITHUB_TOKEN set - limited to 60 GitHub requests/hr, fine for local testing only"
             )
 
-    # Warn when trusting X-Forwarded-For headers in production. This should
-    # only be enabled when a trusted reverse proxy strips client-supplied
-    # values; otherwise IP-based rate limits are trivially bypassed.
+    # Warn when trusting X-Forwarded-For headers in production. Client IPs are only
+    # reliable when TRUSTED_PROXY_COUNT matches the number of proxies that append to the header.
     if settings.TRUST_PROXY_HEADERS and settings.APP_ENV == "production":
-        logger.warning(
-            "TRUST_PROXY_HEADERS=True - ensure a trusted reverse proxy strips client-supplied X-Forwarded-For before requests reach this app, otherwise IP rate limiting is trivially bypassed"
-        )
+        if settings.TRUSTED_PROXY_COUNT == 0:
+            logger.warning(
+                "TRUST_PROXY_HEADERS=True but TRUSTED_PROXY_COUNT=0 - the leftmost X-Forwarded-For entry is used and can be spoofed by clients, so IP rate limiting is bypassable. Set TRUSTED_PROXY_COUNT to the number of proxies in front of this app."
+            )
+        else:
+            logger.warning(
+                "TRUST_PROXY_HEADERS=True with TRUSTED_PROXY_COUNT={} - client IP is taken from X-Forwarded-For entry {} from the right. Ensure exactly {} trusted proxies append to the header, otherwise IP rate limiting is bypassable or misattributed.",
+                settings.TRUSTED_PROXY_COUNT,
+                settings.TRUSTED_PROXY_COUNT,
+                settings.TRUSTED_PROXY_COUNT,
+            )
 
     # Disallow SQLite in production: it's only intended for local development.
     if settings.APP_ENV == "production" and settings.DATABASE_URL.startswith("sqlite"):

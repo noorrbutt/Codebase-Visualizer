@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     MAX_REPO_FILES: int = 300
     MAX_CONCURRENT_REPO_ANALYSES: int = 5
     TRUST_PROXY_HEADERS: bool = False
+    # Number of trusted proxies appending to X-Forwarded-For; the client IP is the entry this many positions from the right.
+    TRUSTED_PROXY_COUNT: int = 0
     # Number of seconds after which a repo lock is considered stale and may be reclaimed
     RECLAIM_LOCK_AFTER_SECONDS: int = 600
     AI_MAX_REQUESTS_PER_HOUR: int = 60

@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import ipaddress
 import time
 
 from fastapi import Request
 from redis import Redis
 
 from app.config import settings
+from app.logging import get_logger
 from app.services.redis_client import get_redis_client
+
+logger = get_logger(__name__)
 
 
 class IPRateLimiter:
@@ -17,17 +21,31 @@ class IPRateLimiter:
 
     @staticmethod
     def resolve_client_ip(request: Request) -> str:
-        if settings.TRUST_PROXY_HEADERS:
-            # Enabling this later requires a trusted proxy configuration (for example
-            # trusted proxy count/IPs), not just flipping the flag.
+        client_host = request.client.host if request.client and request.client.host else None
+
+        if settings.TRUST_PROXY_HEADERS and settings.TRUSTED_PROXY_COUNT > 0:
+            forwarded_for = request.headers.get("x-forwarded-for", "")
+            logger.debug("client.host={} x-forwarded-for={!r}", client_host, forwarded_for)
+
+            # Each trusted proxy appends the address it saw, so the entry that many
+            # positions from the right is the one the outermost trusted proxy recorded.
+            entries = [entry.strip() for entry in forwarded_for.split(",")]
+            if len(entries) >= settings.TRUSTED_PROXY_COUNT:
+                candidate = entries[-settings.TRUSTED_PROXY_COUNT]
+                try:
+                    return str(ipaddress.ip_address(candidate))
+                except ValueError:
+                    pass
+        elif settings.TRUST_PROXY_HEADERS:
+            # Count of 0 keeps the legacy behavior: trust the leftmost entry.
             forwarded_for = request.headers.get("x-forwarded-for", "")
             if forwarded_for:
                 forwarded_ip = forwarded_for.split(",")[0].strip()
                 if forwarded_ip:
                     return forwarded_ip
 
-        if request.client and request.client.host:
-            return request.client.host
+        if client_host:
+            return client_host
 
         return "unknown"
 
