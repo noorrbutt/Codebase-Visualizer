@@ -28,16 +28,16 @@ secret. Use **Variables** for the rest.
 | `GITHUB_TOKEN` | Secret | Fine-grained read-only token (see b3). Required in production |
 | `GROQ_API_KEY` | Secret | Optional. Only needed for AI summaries |
 | `APP_ENV` | Variable | `production` |
-| `CORS_ORIGINS` | Variable | JSON array with your exact Vercel URL, e.g. `["https://<project>.vercel.app"]`. No trailing slash, no `*`. Use JSON, not comma-separated: a plain comma list makes the app fail at startup |
+| `CORS_ORIGINS` | Variable | Your exact Vercel origin, e.g. `https://<project>.vercel.app`. No trailing slash, no `*`. Several origins: comma-separated, e.g. `https://a.vercel.app,https://b.vercel.app` |
 | `TRUST_PROXY_HEADERS` | Variable | `True` (the Space sits behind a proxy; without this, every user shares one rate-limit bucket) |
-| `TRUSTED_PROXY_COUNT` | Variable | Hop count from section f. Start with `1` and verify |
+| `TRUSTED_PROXY_COUNT` | Variable | Hop count from section f. Must be at least `1` in production; the app refuses to start with `0` |
 | `LOG_LEVEL` | Variable | `INFO`. Set to `DEBUG` only while doing section f, then set it back |
 | `RATE_LIMIT_REQUESTS_PER_MINUTE` | Variable | Optional. Default `20` |
 | `MAX_REPO_FILES` | Variable | Optional. Default `300` |
 | `MAX_CONCURRENT_REPO_ANALYSES` | Variable | Optional. Default `5` |
 
-The backend refuses to start in production without `API_KEY` and `GITHUB_TOKEN`, and it refuses
-SQLite. A missing `REDIS_URL` will also fail readiness.
+The backend refuses to start in production without `API_KEY` and `GITHUB_TOKEN`, refuses
+SQLite, and refuses `TRUST_PROXY_HEADERS=True` with `TRUSTED_PROXY_COUNT=0`. A missing `REDIS_URL` will also fail readiness.
 
 All variable names and defaults are documented in `backend/.env.example`.
 
@@ -173,8 +173,8 @@ from the right. The right number is the number of proxies that append to the hea
 If no entry matches your IP, the header is not what you expect. Keep `TRUSTED_PROXY_COUNT`
 conservative and check the logs again before counting on rate limits.
 
-With `TRUST_PROXY_HEADERS=True` and `TRUSTED_PROXY_COUNT=0`, the app trusts the leftmost,
-client-supplied entry. Clients can spoof that, so do not leave the count at `0` in production.
+With `TRUST_PROXY_HEADERS=True` and `TRUSTED_PROXY_COUNT=0`, the app would trust the leftmost,
+client-supplied entry. In production it refuses to start in that state.
 
 ---
 
