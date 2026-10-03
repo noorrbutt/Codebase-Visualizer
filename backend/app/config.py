@@ -1,6 +1,9 @@
+import json
+from typing import Annotated
+
 from pydantic import field_validator
 from pathlib import Path
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -14,7 +17,9 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379/0"
     APP_ENV: str = "development"
     LOG_LEVEL: str = "INFO"
-    CORS_ORIGINS: list[str] = ["http://localhost:5173", "http://localhost:3000"]
+    # NoDecode stops pydantic-settings from parsing the env value as JSON first, so both
+    # "https://a.com,https://b.com" and '["https://a.com"]' reach the validator below.
+    CORS_ORIGINS: Annotated[list[str], NoDecode] = ["http://localhost:5173", "http://localhost:3000"]
     RATE_LIMIT_REQUESTS_PER_MINUTE: int = 20
     MAX_REPO_FILES: int = 300
     MAX_CONCURRENT_REPO_ANALYSES: int = 5
@@ -40,7 +45,10 @@ class Settings(BaseSettings):
     @classmethod
     def parse_cors_origins(cls, value):
         if isinstance(value, str):
-            return [origin.strip() for origin in value.split(",") if origin.strip()]
+            text = value.strip()
+            if text.startswith("["):
+                return json.loads(text)
+            return [origin.strip() for origin in text.split(",") if origin.strip()]
         return value
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
