@@ -53,8 +53,10 @@ def _validate_production_settings(settings) -> None:
     # reliable when TRUSTED_PROXY_COUNT matches the number of proxies that append to the header.
     if settings.TRUST_PROXY_HEADERS and settings.APP_ENV == "production":
         if settings.TRUSTED_PROXY_COUNT == 0:
-            logger.warning(
-                "TRUST_PROXY_HEADERS=True but TRUSTED_PROXY_COUNT=0 - the leftmost X-Forwarded-For entry is used and can be spoofed by clients, so IP rate limiting is bypassable. Set TRUSTED_PROXY_COUNT to the number of proxies in front of this app."
+            # Refuse to start: the leftmost X-Forwarded-For entry is client-controlled, so
+            # trusting it in production makes IP rate limiting trivially bypassable.
+            raise RuntimeError(
+                "TRUST_PROXY_HEADERS=True requires TRUSTED_PROXY_COUNT >= 1 in production"
             )
         else:
             logger.warning(
@@ -137,6 +139,8 @@ def readiness() -> JSONResponse:
     checks: dict[str, str] = {}
     healthy = True
 
+    # This endpoint is public, so report only a generic failure. Driver errors can include
+    # hostnames and usernames; the full exception goes to the server log instead.
     try:
         from sqlalchemy import text
 
@@ -145,18 +149,20 @@ def readiness() -> JSONResponse:
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
         checks["database"] = "ok"
-    except Exception as exc:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
+        logger.exception("Readiness check failed: database")
         healthy = False
-        checks["database"] = f"error: {exc}"
+        checks["database"] = "error"
 
     try:
         from app.services.redis_client import get_redis_client
 
         get_redis_client().ping()
         checks["redis"] = "ok"
-    except Exception as exc:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
+        logger.exception("Readiness check failed: redis")
         healthy = False
-        checks["redis"] = f"error: {exc}"
+        checks["redis"] = "error"
 
     status_code = 200 if healthy else 503
     return JSONResponse(
