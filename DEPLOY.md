@@ -28,7 +28,7 @@ secret. Use **Variables** for the rest.
 | `GITHUB_TOKEN` | Secret | Fine-grained read-only token (see b3). Required in production |
 | `GROQ_API_KEY` | Secret | Optional. Only needed for AI summaries |
 | `APP_ENV` | Variable | `production` |
-| `CORS_ORIGINS` | Variable | Your exact Vercel URL, e.g. `https://<project>.vercel.app`. No trailing slash, no `*` |
+| `CORS_ORIGINS` | Variable | JSON array with your exact Vercel URL, e.g. `["https://<project>.vercel.app"]`. No trailing slash, no `*`. Use JSON, not comma-separated: a plain comma list makes the app fail at startup |
 | `TRUST_PROXY_HEADERS` | Variable | `True` (the Space sits behind a proxy; without this, every user shares one rate-limit bucket) |
 | `TRUSTED_PROXY_COUNT` | Variable | Hop count from section f. Start with `1` and verify |
 | `LOG_LEVEL` | Variable | `INFO`. Set to `DEBUG` only while doing section f, then set it back |
