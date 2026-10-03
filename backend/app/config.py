@@ -26,6 +26,14 @@ class Settings(BaseSettings):
     AI_MAX_CLIENT_REQUESTS_PER_HOUR: int = 1000
     AI_MAX_CLIENT_REQUESTS_PER_DAY: int = 4000
 
+    @field_validator("DATABASE_URL", mode="after")
+    @classmethod
+    def normalize_database_url(cls, value: str) -> str:
+        # SQLAlchemy 2 only accepts the "postgresql://" scheme; hosted providers often issue "postgres://".
+        if value.startswith("postgres://"):
+            return "postgresql://" + value[len("postgres://"):]
+        return value
+
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod
     def parse_cors_origins(cls, value):

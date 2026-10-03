@@ -10,11 +10,15 @@ from app.config import settings
 
 def _build_engine() -> object:
     connect_args = {}
+    engine_kwargs = {}
 
     if settings.DATABASE_URL.startswith("sqlite"):
         connect_args["check_same_thread"] = False
+    else:
+        # Neon suspends idle compute and drops pooled connections; validate before use and recycle early.
+        engine_kwargs = {"pool_pre_ping": True, "pool_recycle": 300}
 
-    engine = create_engine(settings.DATABASE_URL, connect_args=connect_args)
+    engine = create_engine(settings.DATABASE_URL, connect_args=connect_args, **engine_kwargs)
 
     # If using SQLite, enable WAL mode and a busy timeout to reduce "database is locked"
     # errors under concurrent access from background workers.
