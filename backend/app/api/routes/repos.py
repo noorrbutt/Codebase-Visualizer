@@ -80,6 +80,12 @@ def _clear_repo_lock(repo: Repository | None) -> None:
 
 
 def _normalize_path_key(file_path: str) -> str:
+    path = Path(file_path)
+    if path.name == "__init__.py":
+        package_key = ".".join(path.parent.parts)
+        if package_key:
+            return package_key
+
     normalized = Path(file_path).with_suffix("")
     key = ".".join(normalized.parts)
     if key.endswith(".index"):
@@ -124,6 +130,41 @@ def _resolve_relative_import(
     return None
 
 
+def _resolve_python_relative_import(
+    current_path: str, import_path: str, module_map: dict[str, str]
+) -> str | None:
+    if not import_path.startswith("."):
+        return None
+
+    level = len(import_path) - len(import_path.lstrip("."))
+    package_parts = PurePosixPath(current_path).parent.parts
+    levels_up = level - 1
+    if levels_up > len(package_parts):
+        return None
+
+    base_parts = package_parts[: len(package_parts) - levels_up] if levels_up else package_parts
+    remainder = import_path[level:].replace("/", ".")
+    key_parts = (*base_parts, *(remainder.split(".") if remainder else ()))
+    key = ".".join(part for part in key_parts if part)
+    return module_map.get(key)
+
+
+def _resolve_python_absolute_import(
+    import_path: str, module_map: dict[str, str]
+) -> str | None:
+    if import_path in module_map and module_map[import_path].endswith(".py"):
+        return module_map[import_path]
+
+    matches = {
+        path
+        for key, path in module_map.items()
+        if path.endswith(".py") and key.endswith(f".{import_path}")
+    }
+    if len(import_path.split(".")) >= 2 or len(matches) == 1:
+        return next(iter(matches)) if len(matches) == 1 else None
+    return None
+
+
 def _normalize_import(import_value: str) -> str:
     if import_value.startswith(("./", "../")):
         return import_value
@@ -136,15 +177,31 @@ def _normalize_import(import_value: str) -> str:
 
 def _build_edges(parsed: dict[str, list[str]]) -> list[FileEdge]:
     module_map: dict[str, str] = {}
+    python_module_map: dict[str, str] = {}
 
     for path in parsed:
         key = _normalize_path_key(path)
         module_map[key] = path
+        if Path(path).suffix.lower() == ".py":
+            python_module_map[key] = path
 
     edges: list[FileEdge] = []
 
     for source, imports in parsed.items():
         for raw_import in imports:
+            if Path(source).suffix.lower() == ".py":
+                if raw_import.startswith("."):
+                    target_path = _resolve_python_relative_import(
+                        source, raw_import, python_module_map
+                    )
+                else:
+                    target_path = _resolve_python_absolute_import(
+                        _normalize_import(raw_import), python_module_map
+                    )
+                if target_path and target_path != source:
+                    edges.append(FileEdge(source=source, target=target_path))
+                continue
+
             normalized_import = _normalize_import(raw_import)
             target_path = module_map.get(normalized_import)
 

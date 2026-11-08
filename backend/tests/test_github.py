@@ -51,6 +51,8 @@ def test_get_file_tree_filters_and_caps_results(monkeypatch):
         "tree": [
             {"type": "blob", "path": "src/app.py", "size": 10},
             {"type": "blob", "path": "src/__init__.py", "size": 10},
+            {"type": "blob", "path": "src/empty/__init__.py", "size": 0},
+            {"type": "blob", "path": "src/manage.py", "size": 10},
             {"type": "blob", "path": "docs/readme.md", "size": 10},
             {"type": "blob", "path": "src/large.py", "size": 200_000},
         ]
@@ -62,7 +64,9 @@ def test_get_file_tree_filters_and_caps_results(monkeypatch):
     files = service.get_file_tree("octocat", "hello-world", "main")
 
     assert files[0]["path"] == "src/app.py"
-    assert all(item["path"] != "src/__init__.py" for item in files)
+    assert any(item["path"] == "src/__init__.py" for item in files)
+    assert all(item["path"] != "src/empty/__init__.py" for item in files)
+    assert all(item["path"] != "src/manage.py" for item in files)
     assert len(files) == 300
 
 

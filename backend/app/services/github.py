@@ -208,11 +208,13 @@ class GithubService:
                 continue
 
             basename = path_lower.rsplit("/", 1)[-1]
-            if basename in {"__init__.py", "manage.py"}:
+            if basename == "manage.py":
                 continue
 
             size = item.get("size")
             if size is None or size > MAX_FILE_SIZE_BYTES:
+                continue
+            if basename == "__init__.py" and size == 0:
                 continue
 
             filtered.append(item)

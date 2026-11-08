@@ -62,34 +62,38 @@ class CodeParser:
 
     def _parse_python(self, content: str) -> list[str]:
         imports: list[str] = []
-        pattern = re.compile(r"^\s*(?:from\s+([a-zA-Z0-9_.]+)\s+import|import\s+(.+))", re.MULTILINE)
+        pattern = re.compile(
+            r"^\s*(?:from\s+([a-zA-Z0-9_.]+)\s+import\s+([^\r\n]+)|import\s+(.+))",
+            re.MULTILINE,
+        )
 
         for match in pattern.finditer(content):
-            module = match.group(1) or match.group(2) or ""
-            module = module.strip()
+            module = (match.group(1) or match.group(3) or "").strip()
             if not module:
                 continue
 
-            if match.group(1):
-                if module.startswith("."):
-                    imports.append(module)
-                    continue
-                root = module.split(".")[0]
-                if root in PYTHON_STDLIB:
-                    continue
-                imports.append(module)
+            if not match.group(1):
+                for token in module.split(","):
+                    token = token.strip().split(" ")[0]
+                    if not token or token.startswith("."):
+                        imports.append(token)
+                        continue
+
+                    root = token.split(".")[0]
+                    if root not in PYTHON_STDLIB:
+                        imports.append(token)
                 continue
 
-            for token in module.split(","):
-                token = token.strip().split(" ")[0]
-                if not token or token.startswith("."):
-                    imports.append(token)
-                    continue
-
-                root = token.split(".")[0]
-                if root in PYTHON_STDLIB:
-                    continue
-                imports.append(token)
+            if not module.startswith(".") and module.split(".")[0] in PYTHON_STDLIB:
+                continue
+            imports.append(module)
+            imported_names = match.group(2).split("#", 1)[0].strip().strip("()")
+            for name in imported_names.split(","):
+                name = name.strip().split(" as ")[0].strip()
+                if name and name != "*":
+                    imports.append(
+                        f"{module}{name}" if module.endswith(".") else f"{module}.{name}"
+                    )
 
         return list(dict.fromkeys([item for item in imports if item]))
 
