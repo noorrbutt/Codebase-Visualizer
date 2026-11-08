@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, HttpUrl
 
 class AnalyzeRequest(BaseModel):
     github_url: HttpUrl
+    force: bool = False
 
 
 

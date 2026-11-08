@@ -242,6 +242,182 @@ def test_analyze_status_and_detail_flow(client, monkeypatch):
     assert detail_response.json()["edges"][0]["source"] == "src/app.py"
 
 
+def test_analyze_reuses_ready_repo_within_cache_ttl(client, monkeypatch):
+    with database_module.SessionLocal() as db:
+        repo = Repository(
+            owner="octocat",
+            repo_name="hello-world",
+            github_url="https://github.com/octocat/hello-world",
+            default_branch="main",
+            status="ready",
+            summary="cached summary",
+        )
+        db.add(repo)
+        db.commit()
+        repo_id = repo.id
+
+    def unexpected_call(*args, **kwargs):
+        raise AssertionError("fresh cache should not call GitHub or schedule analysis")
+
+    monkeypatch.setattr(repos_module.github_service, "parse_repo_url", unexpected_call)
+    monkeypatch.setattr(
+        repos_module.github_service, "get_repo_metadata", unexpected_call
+    )
+    monkeypatch.setattr(repos_module.github_service, "get_file_tree", unexpected_call)
+    monkeypatch.setattr(repos_module.repo_rate_limiter, "allow", lambda ip: True)
+
+    response = client.post(
+        "/repos/analyze",
+        json={"github_url": "https://github.com/octocat/hello-world"},
+        headers={"X-API-Key": "test-api-key"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["id"] == repo_id
+    assert response.json()["status"] == "ready"
+    assert response.json()["summary"] == "cached summary"
+
+    with database_module.SessionLocal() as db:
+        repos = db.query(Repository).all()
+        assert len(repos) == 1
+        assert repos[0].status == "ready"
+
+
+def test_force_analyze_reuses_repository_row_and_schedules_rebuild(client, monkeypatch):
+    with database_module.SessionLocal() as db:
+        repo = Repository(
+            owner="octocat",
+            repo_name="hello-world",
+            github_url="https://github.com/octocat/hello-world",
+            default_branch="main",
+            status="ready",
+            error_message="old error",
+        )
+        db.add(repo)
+        db.commit()
+        repo_id = repo.id
+
+    metadata_calls = []
+    scheduled = []
+    monkeypatch.setattr(
+        repos_module.github_service,
+        "parse_repo_url",
+        lambda url: ("octocat", "hello-world"),
+    )
+    monkeypatch.setattr(
+        repos_module.github_service,
+        "get_repo_metadata",
+        lambda owner, name: metadata_calls.append((owner, name))
+        or {"default_branch": "main"},
+    )
+    monkeypatch.setattr(repos_module.repo_rate_limiter, "allow", lambda ip: True)
+
+    async def record_rebuild(*args, **kwargs):
+        scheduled.append(args[0])
+
+    monkeypatch.setattr(
+        repos_module, "_build_repo_analysis_with_timeout", record_rebuild
+    )
+
+    response = client.post(
+        "/repos/analyze",
+        json={"github_url": "https://github.com/octocat/hello-world", "force": True},
+        headers={"X-API-Key": "test-api-key"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["id"] == repo_id
+    assert response.json()["status"] == "parsing"
+    assert metadata_calls == [("octocat", "hello-world")]
+    assert scheduled == [repo_id]
+
+    with database_module.SessionLocal() as db:
+        repos = db.query(Repository).all()
+        assert len(repos) == 1
+        assert repos[0].id == repo_id
+        assert repos[0].status == "parsing"
+        assert repos[0].error_message is None
+
+
+def test_rebuild_preserves_ai_fields_for_unchanged_files(client, monkeypatch):
+    analyzed_at = datetime(2026, 1, 1)
+    with database_module.SessionLocal() as db:
+        repo = Repository(
+            owner="octocat",
+            repo_name="hello-world",
+            github_url="https://github.com/octocat/hello-world",
+            default_branch="main",
+            status="parsing",
+        )
+        db.add(repo)
+        db.flush()
+        repo_id = repo.id
+        db.add(
+            FileNode(
+                repo_id=repo_id,
+                file_path="src/app.py",
+                language="python",
+                line_count=2,
+                import_count=0,
+                ai_summary="saved summary",
+                ai_summary_detail="saved detail",
+                ai_complexity="low",
+                ai_role="utility",
+                analyzed_at=analyzed_at,
+            )
+        )
+        db.commit()
+
+    monkeypatch.setattr(
+        repos_module.github_service,
+        "get_file_tree",
+        lambda owner, repo_name, branch: [{"path": "src/app.py"}],
+    )
+    monkeypatch.setattr(
+        repos_module.github_service,
+        "fetch_files_concurrent",
+        lambda owner, repo_name, branch, file_paths: {
+            "src/app.py": "one\\ntwo\\n"
+        },
+    )
+    monkeypatch.setattr(
+        repos_module.code_parser,
+        "parse",
+        lambda path, content: {
+            "imports": [],
+            "language": "python",
+            "line_count": 2,
+        },
+    )
+    monkeypatch.setattr(
+        repos_module.ai_service,
+        "generate_repo_summary",
+        lambda *args, **kwargs: "fresh repository summary",
+    )
+
+    asyncio.run(
+        repos_module._build_repo_analysis(
+            repo_id,
+            "octocat",
+            "hello-world",
+            "https://github.com/octocat/hello-world",
+            "main",
+        )
+    )
+
+    with database_module.SessionLocal() as db:
+        node = (
+            db.query(FileNode)
+            .filter(FileNode.repo_id == repo_id, FileNode.file_path == "src/app.py")
+            .one()
+        )
+        assert node.ai_summary == "saved summary"
+        assert node.ai_summary_detail == "saved detail"
+        assert node.ai_complexity == "low"
+        assert node.ai_role == "utility"
+        assert node.analyzed_at == analyzed_at
+
+
 def test_get_repo_requires_api_key_when_configured(client):
     with database_module.SessionLocal() as db:
         repo = Repository(
