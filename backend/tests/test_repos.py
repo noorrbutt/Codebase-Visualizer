@@ -16,7 +16,12 @@ import app.database as database_module
 import app.main as main_module
 import app.services.rate_limit as rate_limit_module
 from app.database import Base
-from app.exceptions import AIServiceError
+from app.exceptions import (
+    AIServiceError,
+    GithubRateLimitError,
+    RepoNotFoundError,
+    RepoPrivateError,
+)
 from app.models.file_edge import FileEdge
 from app.models.file_node import FileNode
 from app.models.repository import Repository
@@ -85,6 +90,31 @@ def test_cors_allows_configured_frontend_origin(client):
 
     assert response.status_code == 200
     assert response.headers["access-control-allow-origin"] == "http://localhost:5173"
+
+
+def test_repo_status_includes_error_message(client):
+    with database_module.SessionLocal() as db:
+        repo = Repository(
+            owner="octocat",
+            repo_name="hello-world",
+            github_url="https://github.com/octocat/hello-world",
+            default_branch="main",
+            status="failed",
+            error_message="Repository not found: https://github.com/octocat/hello-world",
+        )
+        db.add(repo)
+        db.commit()
+        repo_id = repo.id
+
+    response = client.get(
+        f"/repos/{repo_id}/status", headers={"X-API-Key": "test-api-key"}
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "failed",
+        "error": "Repository not found: https://github.com/octocat/hello-world",
+    }
 
 
 def test_slow_github_metadata_does_not_block_health(client, monkeypatch):
@@ -206,7 +236,7 @@ def test_analyze_status_and_detail_flow(client, monkeypatch):
     detail_response = client.get(f"/repos/{repo_id}", headers={"X-API-Key": "test-api-key"})
 
     assert status_response.status_code == 200
-    assert status_response.json() == {"status": "ready"}
+    assert status_response.json() == {"status": "ready", "error": None}
     assert detail_response.status_code == 200
     assert detail_response.json()["nodes"][0]["path"] == "src/app.py"
     assert detail_response.json()["edges"][0]["source"] == "src/app.py"
@@ -482,8 +512,105 @@ def test_build_repo_analysis_with_timeout_sets_failed_when_slot_unavailable(clie
         repo = db.get(Repository, repo_id)
         assert repo is not None
         assert repo.status == "failed"
+        assert repo.error_message == "Analysis failed"
         assert repo.locked_at is None
         assert repo.worker_id is None
+
+
+@pytest.mark.parametrize(
+    ("failure", "expected_error"),
+    [
+        (GithubRateLimitError("GitHub rate limit reached"), "GitHub rate limit reached"),
+        (
+            RepoNotFoundError("https://github.com/octocat/missing"),
+            "Repository not found: https://github.com/octocat/missing",
+        ),
+        (
+            RepoPrivateError("https://github.com/octocat/private"),
+            "Repository is private or access is denied: https://github.com/octocat/private",
+        ),
+        (RuntimeError("internal implementation detail"), "Analysis failed"),
+    ],
+)
+def test_repo_analysis_stores_safe_failure_message(
+    client, monkeypatch, failure, expected_error
+):
+    with database_module.SessionLocal() as db:
+        repo = Repository(
+            owner="octocat",
+            repo_name="hello-world",
+            github_url="https://github.com/octocat/hello-world",
+            default_branch="main",
+            status="parsing",
+        )
+        db.add(repo)
+        db.commit()
+        repo_id = repo.id
+
+    def fail_get_file_tree(*args):
+        raise failure
+
+    monkeypatch.setattr(repos_module.github_service, "get_file_tree", fail_get_file_tree)
+
+    asyncio.run(
+        repos_module._build_repo_analysis(
+            repo_id,
+            "octocat",
+            "hello-world",
+            "https://github.com/octocat/hello-world",
+            "main",
+        )
+    )
+
+    with database_module.SessionLocal() as db:
+        repo = db.get(Repository, repo_id)
+        assert repo is not None
+        assert repo.status == "failed"
+        assert repo.error_message == expected_error
+
+
+def test_repo_analysis_timeout_stores_timeout_message(client, monkeypatch):
+    async def acquire_slot():
+        return True
+
+    async def release_slot():
+        return None
+
+    async def slow_analysis(*args, **kwargs):
+        await asyncio.sleep(1)
+
+    with database_module.SessionLocal() as db:
+        repo = Repository(
+            owner="octocat",
+            repo_name="hello-world",
+            github_url="https://github.com/octocat/hello-world",
+            default_branch="main",
+            status="parsing",
+        )
+        db.add(repo)
+        db.commit()
+        repo_id = repo.id
+
+    monkeypatch.setattr(repos_module.settings, "ANALYSIS_TIMEOUT_SECONDS", 0.01)
+    monkeypatch.setattr(repos_module, "acquire_repo_analysis_slot", acquire_slot)
+    monkeypatch.setattr(repos_module, "release_repo_analysis_slot", release_slot)
+    monkeypatch.setattr(repos_module, "_build_repo_analysis", slow_analysis)
+
+    asyncio.run(
+        repos_module._build_repo_analysis_with_timeout(
+            repo_id,
+            "octocat",
+            "hello-world",
+            "https://github.com/octocat/hello-world",
+            "main",
+        )
+    )
+
+    with database_module.SessionLocal() as db:
+        repo = db.get(Repository, repo_id)
+        assert repo is not None
+        assert repo.status == "failed"
+        assert repo.error_message == "Analysis timed out"
 
 
 def test_build_repo_analysis_marks_ready_when_ai_summary_fails(client, monkeypatch):

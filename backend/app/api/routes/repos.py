@@ -21,7 +21,12 @@ from app.schemas.repository import (
     FileNodeOut,
     RepoListItem,
 )
-from app.exceptions import AIServiceError
+from app.exceptions import (
+    AIServiceError,
+    GithubRateLimitError,
+    RepoNotFoundError,
+    RepoPrivateError,
+)
 from app.services.ai import AIService
 from app.services.coordination import RedisConcurrencyGate, RedisMutex
 from app.services.github import GithubService
@@ -254,13 +259,18 @@ def _update_repo_analysis_state(
         db.close()
 
 
-def _mark_repo_analysis_failed(repo_id: int, clear_lock: bool = True) -> None:
+def _mark_repo_analysis_failed(
+    repo_id: int,
+    error_message: str = "Analysis failed",
+    clear_lock: bool = True,
+) -> None:
     db = SessionLocal()
     try:
         repo = db.get(Repository, repo_id)
         if repo is None:
             return
         repo.status = "failed"
+        repo.error_message = error_message
         if clear_lock:
             _clear_repo_lock(repo)
         db.commit()
@@ -269,6 +279,12 @@ def _mark_repo_analysis_failed(repo_id: int, clear_lock: bool = True) -> None:
         raise
     finally:
         db.close()
+
+
+def _analysis_error_message(exc: Exception) -> str:
+    if isinstance(exc, (GithubRateLimitError, RepoNotFoundError, RepoPrivateError)):
+        return str(exc)
+    return "Analysis failed"
 
 
 def _persist_repo_analysis_files(
@@ -322,6 +338,7 @@ def _create_repo_analysis_record(
             default_branch=branch,
             total_files=0,
             status="parsing",
+            error_message=None,
         )
 
         requery = db.query(Repository).filter(Repository.github_url == repo_key).first()
@@ -390,7 +407,12 @@ async def _build_repo_summary(
         logger.info("Repo summary saved for repo {}", repo_id)
     except Exception as exc:
         logger.error("Repo summary background task failed for repo {}: {}", repo_id, exc)
-        await asyncio.to_thread(_mark_repo_analysis_failed, repo_id, False)
+        await asyncio.to_thread(
+            _mark_repo_analysis_failed,
+            repo_id,
+            _analysis_error_message(exc),
+            clear_lock=False,
+        )
 
 
 async def _build_repo_analysis(
@@ -454,7 +476,11 @@ async def _build_repo_analysis(
             logger.info("Background repo analysis completed without AI summary for repo {}", repo_id)
     except Exception as exc:
         logger.error("Background repo analysis failed for repo {}: {}", repo_id, exc)
-        await asyncio.to_thread(_mark_repo_analysis_failed, repo_id)
+        await asyncio.to_thread(
+            _mark_repo_analysis_failed,
+            repo_id,
+            _analysis_error_message(exc),
+        )
 
 
 async def _build_repo_analysis_with_timeout(
@@ -482,10 +508,19 @@ async def _build_repo_analysis_with_timeout(
                 return
         await asyncio.wait_for(
             _build_repo_analysis(repo_id, owner, repo_name, github_url, branch, client_ip=client_ip),
-            timeout=120,
+            timeout=settings.ANALYSIS_TIMEOUT_SECONDS,
         )
     except asyncio.TimeoutError:
-        await asyncio.to_thread(_mark_repo_analysis_failed, repo_id)
+        await asyncio.to_thread(
+            _mark_repo_analysis_failed, repo_id, "Analysis timed out"
+        )
+    except Exception as exc:
+        logger.error("Repo analysis task failed for repo {}: {}", repo_id, exc)
+        await asyncio.to_thread(
+            _mark_repo_analysis_failed,
+            repo_id,
+            _analysis_error_message(exc),
+        )
     finally:
         if slot_preacquired or slot_acquired:
             await release_repo_analysis_slot()
@@ -630,11 +665,11 @@ async def analyze_repo(
 
 
 @router.get("/{repo_id}/status", dependencies=[Depends(_require_api_key)])
-def get_repo_status(repo_id: int, db: Session = Depends(get_db)) -> dict[str, str]:
+def get_repo_status(repo_id: int, db: Session = Depends(get_db)) -> dict[str, str | None]:
     repo = db.query(Repository).filter(Repository.id == repo_id).first()
     if repo is None:
         raise HTTPException(status_code=404, detail="Repository not found")
-    return {"status": repo.status}
+    return {"status": repo.status, "error": repo.error_message}
 
 
 @router.get("/", response_model=list[RepoListItem], dependencies=[Depends(_require_api_key)])

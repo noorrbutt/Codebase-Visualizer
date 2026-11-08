@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     RATE_LIMIT_REQUESTS_PER_MINUTE: int = 20
     MAX_REPO_FILES: int = 300
     MAX_CONCURRENT_REPO_ANALYSES: int = 5
+    ANALYSIS_TIMEOUT_SECONDS: int = 240
     TRUST_PROXY_HEADERS: bool = False
     # Number of trusted proxies appending to X-Forwarded-For; the client IP is the entry this many positions from the right.
     TRUSTED_PROXY_COUNT: int = 0

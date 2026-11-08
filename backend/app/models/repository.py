@@ -16,6 +16,7 @@ class Repository(Base):
     total_files = Column(Integer, nullable=False, default=0)
     summary = Column(Text, nullable=True)
     status = Column(String, nullable=False, default="parsing")
+    error_message = Column(Text, nullable=True)
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
     updated_at = Column(DateTime, onupdate=func.now(), nullable=True)
     # Locking fields used to claim long-running analysis work across restarts/workers

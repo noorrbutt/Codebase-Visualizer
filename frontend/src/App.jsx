@@ -2,9 +2,10 @@ import { useState, useEffect, useRef } from "react";
 import DashboardPage from "./DashboardPage";
 import { getLangColor } from "./utils/lang";
 import { apiFetch } from "./utils/api";
+import { pollRepoStatus } from "./utils/poll";
 
-function HomePage({ onAnalyze, loading, externalError, onClearError }) {
-  const [url, setUrl] = useState("");
+function HomePage({ onAnalyze, loading, externalError, onClearError, initialUrl }) {
+  const [url, setUrl] = useState(initialUrl);
   const [error, setError] = useState("");
 
   const handleSubmit = (e) => {
@@ -130,11 +131,15 @@ export default function App() {
   const [pollStatus, setPollStatus] = useState("queued");
   const [data, setData] = useState(null);
   const [analysisError, setAnalysisError] = useState("");
+  const [failureMessage, setFailureMessage] = useState("");
+  const [retryUrl, setRetryUrl] = useState("");
   const pollRef = useRef(null);
 
   const analyze = async (url) => {
     setLoading(true);
     setView("loading");
+    setRetryUrl(url);
+    setFailureMessage("");
     const parts = url.replace("https://github.com/", "").split("/");
     setRepoName(parts.slice(0, 2).join("/"));
     try {
@@ -179,34 +184,29 @@ export default function App() {
   };
 
   const startPolling = (id) => {
-    clearInterval(pollRef.current);
-    pollRef.current = setInterval(async () => {
-      try {
-        const res = await apiFetch(`/repos/${id}/status`);
-        if (!res.ok) throw new Error("Status request failed");
-        const json = await res.json();
-        setPollStatus(json.status);
-        if (json.status === "ready") {
-          clearInterval(pollRef.current);
-          await fetchRepo(id);
-        } else if (json.status === "failed") {
-          clearInterval(pollRef.current);
-          setLoading(false);
-          setView("dashboard");
-        }
-      } catch {
-        // polling error — will retry next interval
-      }
-    }, 3000);
+    pollRef.current?.();
+    pollRef.current = pollRepoStatus(id, {
+      onStatus: setPollStatus,
+      onReady: () => fetchRepo(id),
+      onError: (message) => {
+        pollRef.current = null;
+        setFailureMessage(message);
+        setLoading(false);
+        setView("error");
+      },
+    });
   };
 
   const reset = () => {
-    clearInterval(pollRef.current);
+    pollRef.current?.();
+    pollRef.current = null;
     setView("home");
     setData(null);
     setLoading(false);
     setRepoName("");
     setPollStatus("queued");
+    setFailureMessage("");
+    setRetryUrl("");
   };
 
   return (
@@ -232,9 +232,32 @@ export default function App() {
         input:focus { border-color: var(--fg) !important; }
         ::-webkit-scrollbar-thumb { background: #E5E7EB; }
       `}</style>
-      {view === "home" && <HomePage onAnalyze={analyze} loading={loading} externalError={analysisError} onClearError={() => setAnalysisError("")} />}
+      {view === "home" && <HomePage onAnalyze={analyze} loading={loading} externalError={analysisError} onClearError={() => setAnalysisError("")} initialUrl={retryUrl} />}
       {view === "loading" && <LoadingPage repoName={repoName} status={pollStatus} />}
       {view === "dashboard" && data && <DashboardPage data={data} onReset={reset} />}
+      {view === "error" && (
+        <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "2rem", background: "var(--bg)", textAlign: "center" }}>
+          <div style={{ maxWidth: 480 }}>
+            <h1 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: 32, fontWeight: 400, color: "var(--fg)", marginBottom: "1rem" }}>
+              Analysis failed
+            </h1>
+            <p role="alert" style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 15, lineHeight: 1.6, color: "var(--muted)", marginBottom: "1.5rem" }}>
+              {failureMessage}
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                setData(null);
+                setFailureMessage("");
+                setView("home");
+              }}
+              style={{ padding: "12px 20px", background: "var(--fg)", color: "var(--surface)", border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", fontSize: 14, fontWeight: 500 }}
+            >
+              Try again
+            </button>
+          </div>
+        </div>
+      )}
     </>
   );
 }
