@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import asyncio
+import threading
+import time
 from datetime import datetime, timedelta, timezone
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -81,6 +85,56 @@ def test_cors_allows_configured_frontend_origin(client):
 
     assert response.status_code == 200
     assert response.headers["access-control-allow-origin"] == "http://localhost:5173"
+
+
+def test_slow_github_metadata_does_not_block_health(client, monkeypatch):
+    metadata_started = threading.Event()
+
+    def slow_get_repo_metadata(owner, repo_name):
+        metadata_started.set()
+        time.sleep(0.5)
+        return {"default_branch": "main"}
+
+    async def skip_repo_analysis(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(
+        repos_module.github_service,
+        "parse_repo_url",
+        lambda url: ("octocat", "hello-world"),
+    )
+    monkeypatch.setattr(
+        repos_module.github_service, "get_repo_metadata", slow_get_repo_metadata
+    )
+    monkeypatch.setattr(repos_module.repo_rate_limiter, "allow", lambda ip: True)
+    monkeypatch.setattr(
+        repos_module, "_build_repo_analysis_with_timeout", skip_repo_analysis
+    )
+
+    async def make_requests():
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://test"
+        ) as async_client:
+            analyze_task = asyncio.create_task(
+                async_client.post(
+                    "/repos/analyze",
+                    json={"github_url": "https://github.com/octocat/hello-world"},
+                    headers={"X-API-Key": "test-api-key"},
+                )
+            )
+            assert await asyncio.to_thread(metadata_started.wait, 1)
+            started_at = asyncio.get_running_loop().time()
+            health_response = await async_client.get("/health")
+            health_duration = asyncio.get_running_loop().time() - started_at
+            analyze_response = await analyze_task
+            return health_response, health_duration, analyze_response
+
+    health_response, health_duration, analyze_response = asyncio.run(make_requests())
+
+    assert health_response.status_code == 200
+    assert health_duration < 0.2
+    assert analyze_response.status_code == 200
 
 
 def test_cors_allows_x_api_key_header_for_analyze(client, monkeypatch):

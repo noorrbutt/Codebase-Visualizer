@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -36,7 +37,7 @@ async def analyze_file(
     request: Request = None,
 ) -> FileAnalyzeResponse:
     client_ip = IPRateLimiter.resolve_client_ip(request)
-    if not file_rate_limiter.allow(client_ip):
+    if not await asyncio.to_thread(file_rate_limiter.allow, client_ip):
         raise HTTPException(status_code=429, detail="Rate limit exceeded for file analysis")
     node = (
         db.query(FileNode)
@@ -65,8 +66,12 @@ async def analyze_file(
     if repo is None:
         raise HTTPException(status_code=404, detail="Repository not found")
 
-    content = github_service.get_file_content(
-        repo.owner, repo.repo_name, repo.default_branch, node.file_path
+    content = await asyncio.to_thread(
+        github_service.get_file_content,
+        repo.owner,
+        repo.repo_name,
+        repo.default_branch,
+        node.file_path,
     )
     try:
         analysis = await ai_service.analyze_file(node.file_path, content, client_ip=client_ip)

@@ -231,13 +231,154 @@ def _normalize_file_records(file_nodes: list[FileNode]) -> list[FileNodeOut]:
     ]
 
 
+def _update_repo_analysis_state(
+    repo_id: int,
+    status: str,
+    summary: str | None = None,
+    clear_lock: bool = False,
+) -> None:
+    db = SessionLocal()
+    try:
+        repo = db.get(Repository, repo_id)
+        if repo is None:
+            return
+        repo.summary = summary
+        repo.status = status
+        if clear_lock:
+            _clear_repo_lock(repo)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
+def _mark_repo_analysis_failed(repo_id: int, clear_lock: bool = True) -> None:
+    db = SessionLocal()
+    try:
+        repo = db.get(Repository, repo_id)
+        if repo is None:
+            return
+        repo.status = "failed"
+        if clear_lock:
+            _clear_repo_lock(repo)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
+def _persist_repo_analysis_files(
+    repo_id: int, node_records: list[FileNode], edges: list[FileEdge]
+) -> bool:
+    db = SessionLocal()
+    try:
+        repo = db.get(Repository, repo_id)
+        if repo is None:
+            return False
+
+        db.query(FileEdgeModel).filter(FileEdgeModel.repo_id == repo.id).delete()
+        db.query(FileNode).filter(FileNode.repo_id == repo.id).delete()
+
+        for node in node_records:
+            node.repo_id = repo.id
+            db.add(node)
+
+        edge_records = [
+            FileEdgeModel(repo_id=repo.id, source=edge.source, target=edge.target)
+            for edge in edges
+        ]
+        db.add_all(edge_records)
+
+        repo.total_files = len(node_records)
+        repo.status = "parsing"
+        db.commit()
+        return True
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
+def _create_repo_analysis_record(
+    repo_key: str, owner: str, repo_name: str, branch: str
+) -> int:
+    db = SessionLocal()
+    try:
+        existing = db.query(Repository).filter(Repository.github_url == repo_key).first()
+        if existing and existing.status == "parsing":
+            raise HTTPException(
+                status_code=409, detail="Repository analysis is already in progress"
+            )
+
+        repo = Repository(
+            github_url=repo_key,
+            repo_name=repo_name,
+            owner=owner,
+            default_branch=branch,
+            total_files=0,
+            status="parsing",
+        )
+
+        requery = db.query(Repository).filter(Repository.github_url == repo_key).first()
+        if requery and requery.status == "parsing":
+            raise HTTPException(
+                status_code=409, detail="Repository analysis is already in progress"
+            )
+
+        if requery:
+            db.query(FileEdgeModel).filter(FileEdgeModel.repo_id == requery.id).delete()
+            db.query(FileNode).filter(FileNode.repo_id == requery.id).delete()
+            db.delete(requery)
+            db.flush()
+
+        db.add(repo)
+        try:
+            db.flush()
+        except IntegrityError as exc:
+            db.rollback()
+            raise HTTPException(
+                status_code=409, detail="Repository analysis is already in progress"
+            ) from exc
+
+        _claim_repo_lock(repo)
+        db.commit()
+        return repo.id
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.error("Failed to save repository {}: {}", repo_key, exc)
+        raise HTTPException(status_code=500, detail="Failed to persist repository data") from exc
+    finally:
+        db.close()
+
+
+def _delete_repo_analysis_record(repo_id: int) -> None:
+    db = SessionLocal()
+    try:
+        repo = db.get(Repository, repo_id)
+        if repo is not None:
+            db.delete(repo)
+            db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
 async def _build_repo_summary(
     repo_id: int,
     repo_name: str,
     file_paths: list[str],
     client_ip: str | None = None,
 ) -> None:
-    db = SessionLocal()
     try:
         summary = await asyncio.to_thread(
             ai_service.generate_repo_summary,
@@ -245,23 +386,11 @@ async def _build_repo_summary(
             file_paths,
             client_ip=client_ip,
         )
-        repo = db.get(Repository, repo_id)
-        if repo is None:
-            return
-
-        repo.summary = summary
-        repo.status = "ready"
-        db.commit()
+        await asyncio.to_thread(_update_repo_analysis_state, repo_id, "ready", summary)
         logger.info("Repo summary saved for repo {}", repo_id)
     except Exception as exc:
-        db.rollback()
         logger.error("Repo summary background task failed for repo {}: {}", repo_id, exc)
-        repo = db.get(Repository, repo_id)
-        if repo:
-            repo.status = "failed"
-            db.commit()
-    finally:
-        db.close()
+        await asyncio.to_thread(_mark_repo_analysis_failed, repo_id, False)
 
 
 async def _build_repo_analysis(
@@ -272,7 +401,6 @@ async def _build_repo_analysis(
     branch: str,
     client_ip: str | None = None,
 ) -> None:
-    db = SessionLocal()
     try:
         logger.info("Starting background analysis for repo {}", repo_id)
         tree_items = await asyncio.to_thread(github_service.get_file_tree, owner, repo_name, branch)
@@ -296,27 +424,12 @@ async def _build_repo_analysis(
                 )
             )
 
-        repo = db.get(Repository, repo_id)
-        if repo is None:
-            return
-
-        db.query(FileEdgeModel).filter(FileEdgeModel.repo_id == repo.id).delete()
-        db.query(FileNode).filter(FileNode.repo_id == repo.id).delete()
-
-        for node in node_records:
-            node.repo_id = repo.id
-            db.add(node)
-
         edges = _build_edges(parsed_results)
-        edge_records = [
-            FileEdgeModel(repo_id=repo.id, source=edge.source, target=edge.target) for edge in edges
-        ]
-        for edge_record in edge_records:
-            db.add(edge_record)
-
-        repo.total_files = len(node_records)
-        repo.status = "parsing"
-        db.commit()
+        persisted = await asyncio.to_thread(
+            _persist_repo_analysis_files, repo_id, node_records, edges
+        )
+        if not persisted:
+            return
 
         try:
             summary = await asyncio.to_thread(
@@ -325,17 +438,14 @@ async def _build_repo_analysis(
                 file_paths,
                 client_ip=client_ip,
             )
-            repo.summary = summary
-            repo.status = "ready"
-            # clear any claim information now that analysis completed
-            _clear_repo_lock(repo)
-            db.commit()
+            await asyncio.to_thread(
+                _update_repo_analysis_state, repo_id, "ready", summary, True
+            )
             logger.info("Background repo analysis complete for repo {}", repo_id)
         except AIServiceError as exc:
-            repo.summary = None
-            repo.status = "ready"
-            _clear_repo_lock(repo)
-            db.commit()
+            await asyncio.to_thread(
+                _update_repo_analysis_state, repo_id, "ready", None, True
+            )
             logger.warning(
                 "AI summary unavailable for repo {} due to budget/AI failure: {}",
                 repo_id,
@@ -343,15 +453,8 @@ async def _build_repo_analysis(
             )
             logger.info("Background repo analysis completed without AI summary for repo {}", repo_id)
     except Exception as exc:
-        db.rollback()
         logger.error("Background repo analysis failed for repo {}: {}", repo_id, exc)
-        repo = db.get(Repository, repo_id)
-        if repo:
-            repo.status = "failed"
-            _clear_repo_lock(repo)
-            db.commit()
-    finally:
-        db.close()
+        await asyncio.to_thread(_mark_repo_analysis_failed, repo_id)
 
 
 async def _build_repo_analysis_with_timeout(
@@ -375,30 +478,14 @@ async def _build_repo_analysis_with_timeout(
             slot_acquired = await acquire_repo_analysis_slot()
             if not slot_acquired:
                 logger.info("Skipping repo analysis {} because the concurrent cap is already reached", repo_id)
-                db = SessionLocal()
-                try:
-                    repo = db.get(Repository, repo_id)
-                    if repo is not None:
-                        repo.status = "failed"
-                        _clear_repo_lock(repo)
-                        db.commit()
-                finally:
-                    db.close()
+                await asyncio.to_thread(_mark_repo_analysis_failed, repo_id)
                 return
         await asyncio.wait_for(
             _build_repo_analysis(repo_id, owner, repo_name, github_url, branch, client_ip=client_ip),
             timeout=120,
         )
     except asyncio.TimeoutError:
-        db = SessionLocal()
-        try:
-            repo = db.get(Repository, repo_id)
-            if repo is not None:
-                repo.status = "failed"
-                _clear_repo_lock(repo)
-                db.commit()
-        finally:
-            db.close()
+        await asyncio.to_thread(_mark_repo_analysis_failed, repo_id)
     finally:
         if slot_preacquired or slot_acquired:
             await release_repo_analysis_slot()
@@ -470,11 +557,10 @@ async def resume_pending_repo_analyses() -> None:
 async def analyze_repo(
     payload: AnalyzeRequest,
     background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db),
     request: Request = None,
 ) -> AnalyzeResponse:
     client_ip = IPRateLimiter.resolve_client_ip(request)
-    if not repo_rate_limiter.allow(client_ip):
+    if not await asyncio.to_thread(repo_rate_limiter.allow, client_ip):
         raise HTTPException(status_code=429, detail="Rate limit exceeded for repository analysis")
 
     repo_key = str(payload.github_url)
@@ -487,63 +573,17 @@ async def analyze_repo(
     slot_acquired = False
     try:
         owner, repo_name = github_service.parse_repo_url(repo_key)
-        metadata = github_service.get_repo_metadata(owner, repo_name)
-        branch = metadata.get("default_branch", "main")
-
-        # Early check for an existing parsing repo. A stricter DB-level unique
-        # constraint is also in place; we'll re-check the row right before
-        # deleting it to close the race window.
-        existing = db.query(Repository).filter(Repository.github_url == repo_key).first()
-        if existing and existing.status == "parsing":
-            raise HTTPException(status_code=409, detail="Repository analysis is already in progress")
-
-        repo = Repository(
-            github_url=repo_key,
-            repo_name=repo_name,
-            owner=owner,
-            default_branch=branch,
-            total_files=0,
-            status="parsing",
+        metadata = await asyncio.to_thread(
+            github_service.get_repo_metadata, owner, repo_name
         )
-
-        try:
-            # Re-query the repository inside the same DB transaction right before
-            # any destructive actions to ensure the status hasn't changed since
-            # the earlier check (closing a small race window).
-            requery = db.query(Repository).filter(Repository.github_url == repo_key).first()
-            if requery and requery.status == "parsing":
-                raise HTTPException(status_code=409, detail="Repository analysis is already in progress")
-
-            if requery:
-                db.query(FileEdgeModel).filter(FileEdgeModel.repo_id == requery.id).delete()
-                db.query(FileNode).filter(FileNode.repo_id == requery.id).delete()
-                db.delete(requery)
-                db.flush()
-
-            db.add(repo)
-            try:
-                db.flush()
-            except IntegrityError:
-                # Another concurrent request inserted the same github_url — treat
-                # as a conflict indicating analysis is already in progress.
-                db.rollback()
-                raise HTTPException(status_code=409, detail="Repository analysis is already in progress")
-
-            # Claim the repo row before the global slot is checked so the repo-specific
-            # lock is the first coordination primitive to be taken.
-            _claim_repo_lock(repo)
-            db.commit()
-        except HTTPException:
-            raise
-        except Exception as exc:
-            db.rollback()
-            logger.error("Failed to save repository {}: {}", repo_key, exc)
-            raise HTTPException(status_code=500, detail="Failed to persist repository data")
+        branch = metadata.get("default_branch", "main")
+        repo_id = await asyncio.to_thread(
+            _create_repo_analysis_record, repo_key, owner, repo_name, branch
+        )
 
         slot_acquired = await acquire_repo_analysis_slot()
         if not slot_acquired:
-            db.delete(repo)
-            db.commit()
+            await asyncio.to_thread(_delete_repo_analysis_record, repo_id)
             raise HTTPException(
                 status_code=503,
                 detail="Too many repository analyses are currently running",
@@ -552,7 +592,7 @@ async def analyze_repo(
         try:
             background_tasks.add_task(
                 _build_repo_analysis_with_timeout,
-                repo.id,
+                repo_id,
                 owner,
                 repo_name,
                 repo_key,
@@ -562,8 +602,7 @@ async def analyze_repo(
             )
         except Exception as exc:
             await release_repo_analysis_slot()
-            db.delete(repo)
-            db.commit()
+            await asyncio.to_thread(_delete_repo_analysis_record, repo_id)
             logger.error(
                 "Saved repository %s but failed to queue analysis: %s", repo_key, exc
             )
@@ -572,12 +611,12 @@ async def analyze_repo(
             )
 
         response = AnalyzeResponse(
-            id=repo.id,
-            repo_name=repo.repo_name,
-            owner=repo.owner,
-            default_branch=repo.default_branch,
-            status=repo.status,
-            summary=repo.summary,
+            id=repo_id,
+            repo_name=repo_name,
+            owner=owner,
+            default_branch=branch,
+            status="parsing",
+            summary=None,
             nodes=[],
             edges=[],
         )

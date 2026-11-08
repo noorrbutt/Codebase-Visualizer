@@ -242,7 +242,7 @@ class AIService:
         if not self.client:
             raise AIServiceError("GROQ_API_KEY not configured")
 
-        self.ensure_budget_available(client_ip=client_ip)
+        await asyncio.to_thread(self.ensure_budget_available, client_ip=client_ip)
 
         snippet = "\n".join(content.splitlines()[:200])
         last_exc: Exception = Exception("unknown error")
