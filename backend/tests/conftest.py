@@ -37,6 +37,18 @@ class InMemoryRedis:
         self.expirations[key] = self._now + ttl
         return True
 
+    def ttl(self, key: str) -> int:
+        if self._is_expired(key):
+            self.values.pop(key, None)
+            self.expirations.pop(key, None)
+            return -2
+        if key not in self.values:
+            return -2
+        expiration = self.expirations.get(key)
+        if expiration is None:
+            return -1
+        return int(expiration - self._now)
+
     def get(self, key: str):
         if self._is_expired(key):
             self.values.pop(key, None)

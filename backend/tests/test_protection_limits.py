@@ -8,7 +8,7 @@ from fastapi import HTTPException
 from app.api.dependencies import _require_api_key
 from app.config import settings
 import app.services.ai as ai_module
-from app.exceptions import AIServiceError
+from app.exceptions import AIBudgetExceededError, AIServiceError
 from app.services.ai import AIService
 from app.services.github import GithubService
 from app.services.rate_limit import IPRateLimiter
@@ -55,6 +55,17 @@ class FakeRedis:
 
     def expire(self, key: str, ttl: int) -> bool:
         self.expirations[key] = ttl
+        return True
+
+    def ttl(self, key: str) -> int:
+        return self.expirations.get(key, -1)
+
+    def set(self, key: str, value, ex: int | None = None, nx: bool = False) -> bool:
+        if nx and key in self.values:
+            return False
+        self.values[key] = int(value)
+        if ex is not None:
+            self.expirations[key] = ex
         return True
 
     def get(self, key: str):
@@ -246,8 +257,79 @@ def test_ai_service_client_budget_exceeded_while_global_budget_has_room():
 
     service.ensure_budget_available(client_ip="198.51.100.7")
 
-    with pytest.raises(AIServiceError, match="client"):
+    with pytest.raises(AIBudgetExceededError, match="client"):
         service.ensure_budget_available(client_ip="198.51.100.7")
+
+
+def test_ai_client_budget_rejection_does_not_increment_global_counters():
+    redis = FakeRedis()
+    service = AIService(
+        hourly_limit=10,
+        daily_limit=10,
+        client_hourly_limit=1,
+        client_daily_limit=10,
+        redis_client=redis,
+    )
+
+    service.ensure_budget_available(client_ip="198.51.100.7")
+    global_counts = (redis.get("ai_budget:hourly"), redis.get("ai_budget:daily"))
+
+    with pytest.raises(AIBudgetExceededError):
+        service.ensure_budget_available(client_ip="198.51.100.7")
+
+    assert (redis.get("ai_budget:hourly"), redis.get("ai_budget:daily")) == global_counts
+
+
+def test_ai_global_budget_rejection_does_not_increment_counters():
+    redis = FakeRedis()
+    service = AIService(
+        hourly_limit=1,
+        daily_limit=10,
+        client_hourly_limit=10,
+        client_daily_limit=10,
+        redis_client=redis,
+    )
+
+    service.ensure_budget_available(client_ip="198.51.100.7")
+    counts = dict(redis.values)
+
+    with pytest.raises(AIBudgetExceededError):
+        service.ensure_budget_available(client_ip="198.51.100.8")
+
+    assert redis.values == counts
+
+
+def test_ai_budget_counters_receive_ttl_when_initialized():
+    redis = FakeRedis()
+    service = AIService(redis_client=redis)
+
+    service.ensure_budget_available(client_ip="198.51.100.7")
+
+    assert redis.expirations == {
+        "ai_budget:hourly:198.51.100.7": 3600,
+        "ai_budget:daily:198.51.100.7": 86400,
+        "ai_budget:hourly": 3600,
+        "ai_budget:daily": 86400,
+    }
+
+
+def test_ai_budget_repairs_legacy_counter_without_ttl():
+    redis = FakeRedis()
+    redis.values["ai_budget:hourly"] = 1
+    service = AIService(redis_client=redis)
+
+    service.ensure_budget_available()
+
+    assert redis.expirations["ai_budget:hourly"] == 3600
+
+
+def test_ai_service_defaults_use_shared_and_per_client_budget_limits():
+    service = AIService(redis_client=FakeRedis())
+
+    assert service.hourly_limit == 300
+    assert service.daily_limit == 1500
+    assert service.client_hourly_limit == 20
+    assert service.client_daily_limit == 60
 
 
 def test_ai_service_uses_redis_budgets(monkeypatch):

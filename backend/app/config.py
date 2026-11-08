@@ -30,10 +30,10 @@ class Settings(BaseSettings):
     TRUSTED_PROXY_COUNT: int = 0
     # Number of seconds after which a repo lock is considered stale and may be reclaimed
     RECLAIM_LOCK_AFTER_SECONDS: int = 600
-    AI_MAX_REQUESTS_PER_HOUR: int = 60
-    AI_MAX_REQUESTS_PER_DAY: int = 200
-    AI_MAX_CLIENT_REQUESTS_PER_HOUR: int = 1000
-    AI_MAX_CLIENT_REQUESTS_PER_DAY: int = 4000
+    AI_MAX_REQUESTS_PER_HOUR: int = 300
+    AI_MAX_REQUESTS_PER_DAY: int = 1500
+    AI_MAX_CLIENT_REQUESTS_PER_HOUR: int = 20
+    AI_MAX_CLIENT_REQUESTS_PER_DAY: int = 60
 
     @field_validator("DATABASE_URL", mode="after")
     @classmethod

@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.api.dependencies import _require_api_key
 from app.database import get_db
-from app.exceptions import AIServiceError
+from app.exceptions import AIBudgetExceededError, AIServiceError
 from app.config import settings
 from app.logging import get_logger
 from app.models.file_node import FileNode
@@ -75,6 +75,11 @@ async def analyze_file(
     )
     try:
         analysis = await ai_service.analyze_file(node.file_path, content, client_ip=client_ip)
+    except AIBudgetExceededError:
+        raise HTTPException(
+            status_code=429,
+            detail="AI budget used up. Try again later.",
+        )
     except AIServiceError as exc:
         logger.warning(
             "AI analysis unavailable for client {} on {}/{}: {}",

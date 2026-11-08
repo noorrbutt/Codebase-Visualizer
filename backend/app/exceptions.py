@@ -41,6 +41,10 @@ class AIServiceError(Exception):
         return f"AI service failure: {self.message}"
 
 
+class AIBudgetExceededError(AIServiceError):
+    """Raised when a shared or per-client AI request budget is exhausted."""
+
+
 class AIMalformedResponseError(AIServiceError):
     """Raised when the AI returns malformed or incomplete JSON that cannot be parsed
     or is missing required keys.

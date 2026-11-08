@@ -8,7 +8,7 @@ from groq import Groq
 from redis import Redis
 
 from app.config import settings
-from app.exceptions import AIServiceError, AIMalformedResponseError
+from app.exceptions import AIBudgetExceededError, AIServiceError, AIMalformedResponseError
 from app.logging import get_logger
 from app.services.redis_client import get_redis_client
 
@@ -49,54 +49,56 @@ class AIService:
         client_hourly_key = f"ai_budget:hourly:{client_identifier}"
         client_daily_key = f"ai_budget:daily:{client_identifier}"
 
-        hourly_count = int(redis_client.incr(hourly_key))
-        if hourly_count == 1:
-            redis_client.expire(hourly_key, 3600)
-
-        daily_count = int(redis_client.incr(daily_key))
-        if daily_count == 1:
-            redis_client.expire(daily_key, 86400)
-
-        client_hourly_count = int(redis_client.incr(client_hourly_key))
-        if client_hourly_count == 1:
-            redis_client.expire(client_hourly_key, 3600)
-
-        client_daily_count = int(redis_client.incr(client_daily_key))
-        if client_daily_count == 1:
-            redis_client.expire(client_daily_key, 86400)
-
-        if hourly_count > self.hourly_limit:
-            logger.warning(
-                "AI hourly budget exceeded for client {}: global_hourly={} limit={}",
-                client_identifier,
-                hourly_count,
-                self.hourly_limit,
-            )
-            raise AIServiceError("AI request hourly budget exceeded")
-        if daily_count > self.daily_limit:
-            logger.warning(
-                "AI daily budget exceeded for client {}: global_daily={} limit={}",
-                client_identifier,
-                daily_count,
-                self.daily_limit,
-            )
-            raise AIServiceError("AI request daily budget exceeded")
-        if client_hourly_count > self.client_hourly_limit:
+        client_hourly_count = int(redis_client.get(client_hourly_key) or 0)
+        if client_hourly_count >= self.client_hourly_limit:
             logger.warning(
                 "AI hourly client budget exceeded for client {}: client_hourly={} limit={}",
                 client_identifier,
                 client_hourly_count,
                 self.client_hourly_limit,
             )
-            raise AIServiceError(f"AI request hourly client budget exceeded for {client_identifier}")
-        if client_daily_count > self.client_daily_limit:
+            raise AIBudgetExceededError("AI request hourly client budget exceeded")
+
+        client_daily_count = int(redis_client.get(client_daily_key) or 0)
+        if client_daily_count >= self.client_daily_limit:
             logger.warning(
                 "AI daily client budget exceeded for client {}: client_daily={} limit={}",
                 client_identifier,
                 client_daily_count,
                 self.client_daily_limit,
             )
-            raise AIServiceError(f"AI request daily client budget exceeded for {client_identifier}")
+            raise AIBudgetExceededError("AI request daily client budget exceeded")
+
+        hourly_count = int(redis_client.get(hourly_key) or 0)
+        if hourly_count >= self.hourly_limit:
+            logger.warning(
+                "AI hourly budget exceeded for client {}: global_hourly={} limit={}",
+                client_identifier,
+                hourly_count,
+                self.hourly_limit,
+            )
+            raise AIBudgetExceededError("AI request hourly budget exceeded")
+
+        daily_count = int(redis_client.get(daily_key) or 0)
+        if daily_count >= self.daily_limit:
+            logger.warning(
+                "AI daily budget exceeded for client {}: global_daily={} limit={}",
+                client_identifier,
+                daily_count,
+                self.daily_limit,
+            )
+            raise AIBudgetExceededError("AI request daily budget exceeded")
+
+        self._increment_budget_counter(redis_client, client_hourly_key, 3600)
+        self._increment_budget_counter(redis_client, client_daily_key, 86400)
+        self._increment_budget_counter(redis_client, hourly_key, 3600)
+        self._increment_budget_counter(redis_client, daily_key, 86400)
+
+    @staticmethod
+    def _increment_budget_counter(redis_client: Redis, key: str, ttl: int) -> int:
+        if not redis_client.set(key, 0, ex=ttl, nx=True) and redis_client.ttl(key) == -1:
+            redis_client.expire(key, ttl)
+        return int(redis_client.incr(key))
 
     def generate_repo_summary(
         self,
