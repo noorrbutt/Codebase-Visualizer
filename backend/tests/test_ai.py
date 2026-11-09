@@ -56,6 +56,81 @@ def test_analyze_file_retries_on_json_validate(monkeypatch):
     assert result["complexity"] == "low"
 
 
+def test_analyze_file_normalizes_and_limits_ai_fields():
+    service = AIService()
+
+    class FakeResponse:
+        def __init__(self, content):
+            class Message:
+                def __init__(self, value):
+                    self.content = value
+
+            class Choice:
+                def __init__(self, message):
+                    self.message = message
+
+            self.choices = [Choice(Message(content))]
+
+    class Completions:
+        @staticmethod
+        def create(*args, **kwargs):
+            import json
+
+            return FakeResponse(json.dumps({
+                "summary": f"  {'s' * 650}  ",
+                "summary_detail": f"  {'d' * 610}  ",
+                "complexity": " HIGH ",
+                "role": "API Router",
+            }))
+
+    class Chat:
+        completions = Completions()
+
+    service.client = type("C", (), {"chat": Chat()})()
+
+    result = service._call_analyze_file("file.py", "content")
+
+    assert result == {
+        "summary": "s" * 600,
+        "summary_detail": "d" * 600,
+        "complexity": "high",
+        "role": "api_router",
+    }
+
+
+def test_analyze_file_uses_safe_defaults_for_unknown_ai_categories():
+    service = AIService()
+
+    class FakeResponse:
+        def __init__(self):
+            class Message:
+                content = '{"summary":" summary ","summary_detail":" detail ","complexity":"extreme","role":"new kind"}'
+
+            class Choice:
+                message = Message()
+
+            self.choices = [Choice()]
+
+    class Completions:
+        @staticmethod
+        def create(*args, **kwargs):
+            return FakeResponse()
+
+    class Chat:
+        completions = Completions()
+
+    service.client = type("C", (), {"chat": Chat()})()
+
+    result = service._call_analyze_file("file.py", "content")
+
+    assert result == {
+        "summary": "summary",
+        "summary_detail": "detail",
+        "complexity": "medium",
+        "role": "unknown",
+    }
+
+
 def test_analyze_file_retries_on_malformed_json(monkeypatch):
     service = AIService()
     service._redis_client = InMemoryRedis()

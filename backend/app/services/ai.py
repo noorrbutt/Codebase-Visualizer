@@ -190,11 +190,29 @@ class AIService:
         if not all(key in parsed for key in ("summary", "summary_detail", "complexity", "role")):
             raise AIMalformedResponseError("missing_keys: " + str(list(parsed.keys())))
 
+        complexity = str(parsed["complexity"]).strip().lower()
+        if complexity not in {"low", "medium", "high"}:
+            complexity = "medium"
+
+        role = str(parsed["role"]).strip().lower().replace(" ", "_").replace("-", "_")
+        if role not in {
+            "entry_point",
+            "api_router",
+            "data_model",
+            "service",
+            "utility",
+            "config",
+            "test",
+            "static",
+            "unknown",
+        }:
+            role = "unknown"
+
         return {
-            "summary": str(parsed["summary"]),
-            "summary_detail": str(parsed["summary_detail"]),
-            "complexity": str(parsed["complexity"]),
-            "role": str(parsed["role"]),
+            "summary": str(parsed["summary"]).strip()[:600],
+            "summary_detail": str(parsed["summary_detail"]).strip()[:600],
+            "complexity": complexity,
+            "role": role,
         }
 
     @staticmethod
