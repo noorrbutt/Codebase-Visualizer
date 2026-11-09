@@ -77,3 +77,19 @@ def test_accepts_normal_nested_path():
     assert content == "nested-content"
     assert called_urls
     assert "src/app/views/user_profile.py" in called_urls[0]
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://github.com/Owner/Repo",
+        "https://github.com/Owner/Repo.git",
+        "https://github.com/Owner/Repo/tree/main",
+        "https://www.github.com/Owner/Repo",
+        "https://github.com/Owner/Repo/?tab=readme",
+    ],
+)
+def test_parse_repo_url_accepts_repository_url_variants(url):
+    svc = GithubService()
+
+    assert svc.parse_repo_url(url) == ("Owner", "Repo")

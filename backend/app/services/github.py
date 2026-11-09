@@ -263,14 +263,17 @@ class GithubService:
         if parsed.scheme not in {"https", "http"}:
             raise RepoParseError("URL must start with http:// or https://")
 
-        if parsed.netloc.lower() != "github.com":
+        if parsed.netloc.lower() not in {"github.com", "www.github.com"}:
             raise RepoParseError("URL must point to github.com")
 
         parts = [segment for segment in parsed.path.strip("/").split("/") if segment]
         if len(parts) < 2:
             raise RepoParseError("URL must include owner and repository name")
 
-        owner, repo = parts[0], parts[1].removesuffix(".git")
+        owner = parts[0]
+        repo = parts[1]
+        if repo.lower().endswith(".git"):
+            repo = repo[:-4]
         if not owner or not repo:
             raise RepoParseError("URL must include owner and repository name")
 

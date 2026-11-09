@@ -261,7 +261,6 @@ def test_analyze_reuses_ready_repo_within_cache_ttl(client, monkeypatch):
     def unexpected_call(*args, **kwargs):
         raise AssertionError("fresh cache should not call GitHub or schedule analysis")
 
-    monkeypatch.setattr(repos_module.github_service, "parse_repo_url", unexpected_call)
     monkeypatch.setattr(
         repos_module.github_service, "get_repo_metadata", unexpected_call
     )
@@ -606,6 +605,46 @@ def test_concurrent_analyze_requests_one_succeeds(client, monkeypatch):
 
     with database_module.SessionLocal() as db:
         assert db.query(Repository).filter(Repository.github_url == url).count() == 1
+
+
+def test_analyze_canonicalizes_repository_url_variants(client, monkeypatch):
+    monkeypatch.setattr(repos_module.repo_rate_limiter, "allow", lambda ip: True)
+    monkeypatch.setattr(
+        repos_module.github_service,
+        "get_repo_metadata",
+        lambda owner, repo: {
+            "default_branch": "main",
+            "full_name": "Owner/Repo",
+        },
+    )
+    monkeypatch.setattr(
+        repos_module, "_build_repo_analysis_with_timeout", lambda *args, **kwargs: None
+    )
+
+    urls = [
+        "https://github.com/Owner/Repo",
+        "https://github.com/Owner/Repo.git",
+        "https://github.com/Owner/Repo/tree/main",
+        "https://www.github.com/Owner/Repo",
+        "https://github.com/Owner/Repo/",
+        "https://github.com/Owner/Repo?tab=readme",
+    ]
+    responses = [
+        client.post(
+            "/repos/analyze",
+            json={"github_url": url},
+            headers={"X-API-Key": "test-api-key"},
+        )
+        for url in urls
+    ]
+
+    assert [response.status_code for response in responses] == [200, 409, 409, 409, 409, 409]
+    with database_module.SessionLocal() as db:
+        repos = db.query(Repository).all()
+        assert len(repos) == 1
+        assert repos[0].github_url == "https://github.com/owner/repo"
+        assert repos[0].owner == "Owner"
+        assert repos[0].repo_name == "Repo"
 
 
 def test_analyze_rejects_when_rate_limited(client, monkeypatch):

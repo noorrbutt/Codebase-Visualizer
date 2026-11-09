@@ -672,7 +672,8 @@ async def analyze_repo(
     if not await asyncio.to_thread(repo_rate_limiter.allow, client_ip):
         raise HTTPException(status_code=429, detail="Rate limit exceeded for repository analysis")
 
-    repo_key = str(payload.github_url)
+    owner, repo_name = github_service.parse_repo_url(str(payload.github_url))
+    repo_key = f"https://github.com/{owner}/{repo_name}".lower()
     lock_token = await repo_lock_manager.acquire(repo_key)
     if lock_token is None:
         raise HTTPException(
@@ -692,10 +693,12 @@ async def analyze_repo(
                 edges=[],
             )
 
-        owner, repo_name = github_service.parse_repo_url(repo_key)
         metadata = await asyncio.to_thread(
             github_service.get_repo_metadata, owner, repo_name
         )
+        full_name = metadata.get("full_name")
+        if isinstance(full_name, str) and "/" in full_name:
+            owner, repo_name = full_name.split("/", 1)
         branch = metadata.get("default_branch", "main")
 
         slot_acquired = await acquire_repo_analysis_slot()
