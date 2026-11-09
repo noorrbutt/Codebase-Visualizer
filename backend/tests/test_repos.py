@@ -445,6 +445,47 @@ def test_list_repos_requires_api_key_when_configured(client):
     assert response.json()["detail"] == "Invalid API key"
 
 
+def test_list_repos_paginates_filters_and_preserves_created_order(client):
+    with database_module.SessionLocal() as db:
+        db.add_all(
+            [
+                Repository(
+                    owner="octocat",
+                    repo_name=f"repo-{index}",
+                    github_url=f"https://github.com/octocat/repo-{index}",
+                    default_branch="main",
+                    status="ready" if index % 2 == 0 else "failed",
+                    created_at=datetime(2026, 1, 1) + timedelta(seconds=index),
+                )
+                for index in range(205)
+            ]
+        )
+        db.commit()
+
+    headers = {"X-API-Key": "test-api-key"}
+    default_response = client.get("/repos/", headers=headers)
+    page_response = client.get("/repos/?limit=3&offset=2", headers=headers)
+    filtered_response = client.get(
+        "/repos/?limit=2&offset=1&status=ready", headers=headers
+    )
+    max_page_response = client.get("/repos/?limit=200", headers=headers)
+    invalid_limit_response = client.get("/repos/?limit=201", headers=headers)
+
+    assert default_response.status_code == 200
+    assert len(default_response.json()) == 50
+    assert [repo["repo_name"] for repo in page_response.json()] == [
+        "repo-202",
+        "repo-201",
+        "repo-200",
+    ]
+    assert [repo["repo_name"] for repo in filtered_response.json()] == [
+        "repo-202",
+        "repo-200",
+    ]
+    assert len(max_page_response.json()) == 200
+    assert invalid_limit_response.status_code == 422
+
+
 def test_analyze_rejects_missing_api_key(client, monkeypatch):
     monkeypatch.setattr(
         repos_module.github_service, "parse_repo_url", lambda url: ("octocat", "hello-world")
@@ -1013,8 +1054,8 @@ def test_resume_pending_repo_analyses_claims_and_skips(tmp_path, monkeypatch):
     Base.metadata.create_all(bind=engine)
 
     with test_session_local() as db:
-        stale_time = datetime.utcnow() - timedelta(seconds=1000)
-        fresh_time = datetime.utcnow()
+        stale_time = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=1000)
+        fresh_time = datetime.now(timezone.utc).replace(tzinfo=None)
 
         # stale locked repo should be reclaimed
         db.add(

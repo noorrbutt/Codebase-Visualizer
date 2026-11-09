@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
@@ -95,7 +95,7 @@ async def analyze_file(
         node.ai_summary_detail = analysis["summary_detail"]
         node.ai_complexity = analysis["complexity"]
         node.ai_role = analysis["role"]
-        node.analyzed_at = datetime.utcnow()
+        node.analyzed_at = datetime.now(timezone.utc).replace(tzinfo=None)
         db.commit()
     except Exception as exc:
         db.rollback()

@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path, PurePosixPath
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 
@@ -250,7 +250,7 @@ def _update_repo_analysis_state(
         repo.summary = summary
         repo.status = status
         if status == "ready":
-            repo.updated_at = datetime.utcnow()
+            repo.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
             repo.error_message = None
             repo.stage = None
         if clear_lock:
@@ -764,8 +764,21 @@ def get_repo_status(repo_id: int, db: Session = Depends(get_db)) -> dict[str, st
 
 
 @router.get("/", response_model=list[RepoListItem], dependencies=[Depends(_require_api_key)])
-def list_repos(db: Session = Depends(get_db)) -> list[RepoListItem]:
-    repos = db.query(Repository).order_by(Repository.created_at.desc()).all()
+def list_repos(
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    status: str | None = None,
+    db: Session = Depends(get_db),
+) -> list[RepoListItem]:
+    query = db.query(Repository)
+    if status is not None:
+        query = query.filter(Repository.status == status)
+    repos = (
+        query.order_by(Repository.created_at.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
     return [
         RepoListItem(
             id=repo.id,

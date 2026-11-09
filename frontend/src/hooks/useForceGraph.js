@@ -14,9 +14,11 @@ export function useForceGraph(nodes, edges, canvasRef, selectedNode, onSelectNod
     const canvas = canvasRef.current;
     if (!canvas || !simRef.current) return;
     const ctx = canvas.getContext("2d");
+    const dpr = window.devicePixelRatio || 1;
     const { x, y, scale } = transformRef.current;
-    const w = canvas.width;
-    const h = canvas.height;
+    const w = canvas.clientWidth;
+    const h = canvas.clientHeight;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
     ctx.save();
     ctx.translate(x, y);
