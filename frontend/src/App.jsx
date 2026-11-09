@@ -76,19 +76,24 @@ function HomePage({ onAnalyze, loading, externalError, onClearError, initialUrl 
 }
 
 
-function LoadingPage({ repoName, status }) {
+function LoadingPage({ repoName, stage }) {
   const [dots, setDots] = useState(0);
   useEffect(() => {
     const t = setInterval(() => setDots((d) => (d + 1) % 4), 400);
     return () => clearInterval(t);
   }, []);
 
+  const stages = ["fetching", "parsing", "summarizing"];
+  const currentStageIndex = stages.indexOf(stage);
   const steps = [
-    { label: "Fetching repository tree", done: true },
-    { label: "Reading source files", done: status !== "queued" },
-    { label: "Parsing dependencies", done: status === "summarized" || status === "ready" },
-    { label: "Generating AI summary", done: status === "summarized" || status === "ready" },
-  ];
+    { label: "Fetching repository tree and source files", stage: "fetching" },
+    { label: "Parsing dependencies", stage: "parsing" },
+    { label: "Generating AI summary", stage: "summarizing" },
+  ].map((step, index) => ({
+    ...step,
+    done: index < currentStageIndex,
+    active: index === currentStageIndex,
+  }));
 
   return (
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "2rem", background: "var(--bg)" }}>
@@ -108,13 +113,13 @@ function LoadingPage({ repoName, status }) {
         <div style={{ textAlign: "left" }}>
           {steps.map((s, i) => (
             <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: i < steps.length - 1 ? "1px solid var(--border)" : "none" }}>
-              <div style={{ width: 20, height: 20, borderRadius: "50%", background: s.done ? "#111827" : "#F3F4F6", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "background 0.3s" }}>
+              <div style={{ width: 20, height: 20, borderRadius: "50%", background: s.done || s.active ? "#111827" : "#F3F4F6", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "background 0.3s" }}>
                 {s.done
                   ? <svg width="10" height="10" viewBox="0 0 10 10"><path d="M2 5l2.5 2.5L8 3" stroke="#fff" strokeWidth="1.5" fill="none" strokeLinecap="round" /></svg>
-                  : <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#D1D5DB" }} />
+                  : <div style={{ width: 6, height: 6, borderRadius: "50%", background: s.active ? "#fff" : "#D1D5DB" }} />
                 }
               </div>
-              <span style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 14, color: s.done ? "var(--fg)" : "var(--subtle)", transition: "color 0.3s" }}>{s.label}</span>
+              <span style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 14, color: s.done || s.active ? "var(--fg)" : "var(--subtle)", transition: "color 0.3s" }}>{s.label}</span>
             </div>
           ))}
         </div>
@@ -128,7 +133,7 @@ export default function App() {
   const [view, setView] = useState("home");
   const [loading, setLoading] = useState(false);
   const [repoName, setRepoName] = useState("");
-  const [pollStatus, setPollStatus] = useState("queued");
+  const [pollStage, setPollStage] = useState("fetching");
   const [data, setData] = useState(null);
   const [analysisError, setAnalysisError] = useState("");
   const [failureMessage, setFailureMessage] = useState("");
@@ -157,13 +162,13 @@ export default function App() {
       }
       const json = await res.json();
       setData(json);
-      setPollStatus(json.status);
+      setPollStage("fetching");
       startPolling(json.id);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Could not connect to the backend.";
+      const message = error instanceof Error ? error.message : "Analysis failed";
       setLoading(false);
       setView("home");
-      setAnalysisError(`Could not connect to the backend. ${message}`);
+      setAnalysisError(error instanceof TypeError ? `Could not connect to the backend. ${message}` : message);
     }
   };
 
@@ -173,7 +178,6 @@ export default function App() {
       if (!res.ok) throw new Error("Could not load repository");
       const json = await res.json();
       setData(json);
-      setPollStatus(json.status);
       setLoading(false);
       setView("dashboard");
     } catch {
@@ -186,7 +190,7 @@ export default function App() {
   const startPolling = (id) => {
     pollRef.current?.();
     pollRef.current = pollRepoStatus(id, {
-      onStatus: setPollStatus,
+      onStatus: (_status, stage) => setPollStage(stage),
       onReady: () => fetchRepo(id),
       onError: (message) => {
         pollRef.current = null;
@@ -204,7 +208,7 @@ export default function App() {
     setData(null);
     setLoading(false);
     setRepoName("");
-    setPollStatus("queued");
+    setPollStage("fetching");
     setFailureMessage("");
     setRetryUrl("");
   };
@@ -233,7 +237,7 @@ export default function App() {
         ::-webkit-scrollbar-thumb { background: #E5E7EB; }
       `}</style>
       {view === "home" && <HomePage onAnalyze={analyze} loading={loading} externalError={analysisError} onClearError={() => setAnalysisError("")} initialUrl={retryUrl} />}
-      {view === "loading" && <LoadingPage repoName={repoName} status={pollStatus} />}
+      {view === "loading" && <LoadingPage repoName={repoName} stage={pollStage} />}
       {view === "dashboard" && data && <DashboardPage data={data} onReset={reset} />}
       {view === "error" && (
         <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "2rem", background: "var(--bg)", textAlign: "center" }}>

@@ -100,6 +100,7 @@ def test_repo_status_includes_error_message(client):
             github_url="https://github.com/octocat/hello-world",
             default_branch="main",
             status="failed",
+            stage=None,
             error_message="Repository not found: https://github.com/octocat/hello-world",
         )
         db.add(repo)
@@ -114,6 +115,7 @@ def test_repo_status_includes_error_message(client):
     assert response.json() == {
         "status": "failed",
         "error": "Repository not found: https://github.com/octocat/hello-world",
+        "stage": None,
     }
 
 
@@ -236,7 +238,7 @@ def test_analyze_status_and_detail_flow(client, monkeypatch):
     detail_response = client.get(f"/repos/{repo_id}", headers={"X-API-Key": "test-api-key"})
 
     assert status_response.status_code == 200
-    assert status_response.json() == {"status": "ready", "error": None}
+    assert status_response.json() == {"status": "ready", "error": None, "stage": None}
     assert detail_response.status_code == 200
     assert detail_response.json()["nodes"][0]["path"] == "src/app.py"
     assert detail_response.json()["edges"][0]["source"] == "src/app.py"
@@ -804,25 +806,37 @@ def test_build_repo_analysis_marks_ready_when_ai_summary_fails(client, monkeypat
         db.commit()
         repo_id = repo.id
 
-    monkeypatch.setattr(
-        repos_module.github_service,
-        "get_file_tree",
-        lambda owner, repo_name, branch: [{"path": "src/app.py"}],
-    )
-    monkeypatch.setattr(
-        repos_module.github_service,
-        "fetch_files_concurrent",
-        lambda owner, repo_name, branch, file_paths: {"src/app.py": "print('hi')"},
-    )
-    monkeypatch.setattr(
-        repos_module.code_parser,
-        "parse",
-        lambda path, content: {"imports": [], "language": "python", "line_count": 1},
-    )
+    observed_stages = []
+
+    def get_stage():
+        with database_module.SessionLocal() as db:
+            repo = db.get(Repository, repo_id)
+            assert repo is not None
+            return repo.stage
+
+    def get_file_tree(owner, repo_name, branch):
+        observed_stages.append(get_stage())
+        return [{"path": "src/app.py"}]
+
+    def fetch_files(owner, repo_name, branch, file_paths):
+        observed_stages.append(get_stage())
+        return {"src/app.py": "print('hi')"}
+
+    def parse_file(path, content):
+        observed_stages.append(get_stage())
+        return {"imports": [], "language": "python", "line_count": 1}
+
+    def fail_summary(*args, **kwargs):
+        observed_stages.append(get_stage())
+        raise AIServiceError("AI summary generation failed")
+
+    monkeypatch.setattr(repos_module.github_service, "get_file_tree", get_file_tree)
+    monkeypatch.setattr(repos_module.github_service, "fetch_files_concurrent", fetch_files)
+    monkeypatch.setattr(repos_module.code_parser, "parse", parse_file)
     monkeypatch.setattr(
         repos_module.ai_service,
         "generate_repo_summary",
-        lambda *args, **kwargs: (_ for _ in ()).throw(AIServiceError("AI summary generation failed")),
+        fail_summary,
     )
 
     import asyncio
@@ -842,9 +856,11 @@ def test_build_repo_analysis_marks_ready_when_ai_summary_fails(client, monkeypat
         repo = db.get(Repository, repo_id)
         assert repo is not None
         assert repo.status == "ready"
+        assert repo.stage is None
         assert repo.summary is None
         assert repo.locked_at is None
         assert repo.worker_id is None
+    assert observed_stages == ["fetching", "fetching", "parsing", "summarizing"]
 
 
 def test_resolve_client_ip_ignores_spoofed_forwarded_header_by_default(monkeypatch):

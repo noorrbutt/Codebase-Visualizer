@@ -252,8 +252,24 @@ def _update_repo_analysis_state(
         if status == "ready":
             repo.updated_at = datetime.utcnow()
             repo.error_message = None
+            repo.stage = None
         if clear_lock:
             _clear_repo_lock(repo)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
+def _set_repo_analysis_stage(repo_id: int, stage: str) -> None:
+    db = SessionLocal()
+    try:
+        repo = db.get(Repository, repo_id)
+        if repo is None:
+            return
+        repo.stage = stage
         db.commit()
     except Exception:
         db.rollback()
@@ -273,6 +289,7 @@ def _mark_repo_analysis_failed(
         if repo is None:
             return
         repo.status = "failed"
+        repo.stage = None
         repo.error_message = error_message
         if clear_lock:
             _clear_repo_lock(repo)
@@ -374,6 +391,7 @@ def _create_repo_analysis_record(
             repo.owner = owner
             repo.default_branch = branch
             repo.status = "parsing"
+            repo.stage = None
             repo.error_message = None
         else:
             repo = Repository(
@@ -383,6 +401,7 @@ def _create_repo_analysis_record(
                 default_branch=branch,
                 total_files=0,
                 status="parsing",
+                stage=None,
                 error_message=None,
             )
             db.add(repo)
@@ -477,12 +496,14 @@ async def _build_repo_analysis(
 ) -> None:
     try:
         logger.info("Starting background analysis for repo {}", repo_id)
+        await asyncio.to_thread(_set_repo_analysis_stage, repo_id, "fetching")
         tree_items = await asyncio.to_thread(github_service.get_file_tree, owner, repo_name, branch)
         file_paths = [item["path"] for item in tree_items]
         contents = await asyncio.to_thread(
             github_service.fetch_files_concurrent, owner, repo_name, branch, file_paths
         )
 
+        await asyncio.to_thread(_set_repo_analysis_stage, repo_id, "parsing")
         parsed_results: dict[str, list[str]] = {}
         node_records: list[FileNode] = []
 
@@ -505,6 +526,7 @@ async def _build_repo_analysis(
         if not persisted:
             return
 
+        await asyncio.to_thread(_set_repo_analysis_stage, repo_id, "summarizing")
         try:
             summary = await asyncio.to_thread(
                 ai_service.generate_repo_summary,
@@ -735,7 +757,7 @@ def get_repo_status(repo_id: int, db: Session = Depends(get_db)) -> dict[str, st
     repo = db.query(Repository).filter(Repository.id == repo_id).first()
     if repo is None:
         raise HTTPException(status_code=404, detail="Repository not found")
-    return {"status": repo.status, "error": repo.error_message}
+    return {"status": repo.status, "error": repo.error_message, "stage": repo.stage}
 
 
 @router.get("/", response_model=list[RepoListItem], dependencies=[Depends(_require_api_key)])

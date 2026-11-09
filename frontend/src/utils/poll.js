@@ -33,7 +33,7 @@ export function pollRepoStatus(id, { onStatus, onReady, onError }) {
       const result = await response.json();
       if (stopped) return;
       consecutiveFailures = 0;
-      onStatus(result.status);
+      onStatus(result.status, result.stage);
       if (result.status === "ready") {
         stop();
         await onReady();
