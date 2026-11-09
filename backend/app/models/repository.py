@@ -13,6 +13,7 @@ class Repository(Base):
     repo_name = Column(String, nullable=False)
     owner = Column(String, nullable=False)
     default_branch = Column(String, nullable=False, server_default="main")
+    commit_sha = Column(String, nullable=True)
     total_files = Column(Integer, nullable=False, default=0)
     summary = Column(Text, nullable=True)
     status = Column(String, nullable=False, default="parsing")

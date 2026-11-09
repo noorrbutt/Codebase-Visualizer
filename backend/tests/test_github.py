@@ -45,6 +45,23 @@ def test_get_repo_metadata_uses_github_api(monkeypatch):
     assert calls[0][1]["Accept"] == "application/vnd.github+json"
 
 
+def test_get_commit_sha_uses_branch_commit_endpoint(monkeypatch):
+    service = GithubService()
+    calls = []
+    sha = "0123456789abcdef0123456789abcdef01234567"
+
+    def fake_get(url, headers=None, timeout=None):
+        calls.append(url)
+        return DummyResponse(200, {"sha": sha})
+
+    monkeypatch.setattr("app.services.github.requests.get", fake_get)
+
+    assert service.get_commit_sha("octocat", "hello-world", "release/1.0") == sha
+    assert calls == [
+        "https://api.github.com/repos/octocat/hello-world/commits/release%2F1.0"
+    ]
+
+
 def test_get_file_tree_filters_and_caps_results(monkeypatch):
     service = GithubService()
     payload = {

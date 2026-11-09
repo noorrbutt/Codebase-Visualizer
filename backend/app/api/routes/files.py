@@ -70,7 +70,7 @@ async def analyze_file(
         github_service.get_file_content,
         repo.owner,
         repo.repo_name,
-        repo.default_branch,
+        repo.commit_sha or repo.default_branch,
         node.file_path,
     )
     try:

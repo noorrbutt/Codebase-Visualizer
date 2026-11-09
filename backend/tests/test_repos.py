@@ -12,6 +12,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 import app.api.routes.repos as repos_module
+import app.api.routes.files as files_module
 import app.database as database_module
 import app.main as main_module
 import app.services.rate_limit as rate_limit_module
@@ -342,6 +343,7 @@ def test_force_analyze_reuses_repository_row_and_schedules_rebuild(client, monke
 
 def test_rebuild_preserves_ai_fields_for_unchanged_files(client, monkeypatch):
     analyzed_at = datetime(2026, 1, 1)
+    commit_sha = "0123456789abcdef0123456789abcdef01234567"
     with database_module.SessionLocal() as db:
         repo = Repository(
             owner="octocat",
@@ -372,14 +374,19 @@ def test_rebuild_preserves_ai_fields_for_unchanged_files(client, monkeypatch):
     monkeypatch.setattr(
         repos_module.github_service,
         "get_file_tree",
-        lambda owner, repo_name, branch: [{"path": "src/app.py"}],
+        lambda owner, repo_name, ref: (
+            [{"path": "src/app.py"}] if ref == commit_sha else []
+        ),
     )
     monkeypatch.setattr(
         repos_module.github_service,
         "fetch_files_concurrent",
-        lambda owner, repo_name, branch, file_paths: {
-            "src/app.py": "one\\ntwo\\n"
-        },
+        lambda owner, repo_name, ref, file_paths: (
+            {"src/app.py": "one\\ntwo\\n"} if ref == commit_sha else {}
+        ),
+    )
+    monkeypatch.setattr(
+        repos_module.github_service, "get_commit_sha", lambda *args: commit_sha
     )
     monkeypatch.setattr(
         repos_module.code_parser,
@@ -417,6 +424,9 @@ def test_rebuild_preserves_ai_fields_for_unchanged_files(client, monkeypatch):
         assert node.ai_complexity == "low"
         assert node.ai_role == "utility"
         assert node.analyzed_at == analyzed_at
+        repo = db.get(Repository, repo_id)
+        assert repo is not None
+        assert repo.commit_sha == commit_sha
 
 
 def test_get_repo_requires_api_key_when_configured(client):
@@ -809,6 +819,11 @@ def test_repo_analysis_stores_safe_failure_message(
         raise failure
 
     monkeypatch.setattr(repos_module.github_service, "get_file_tree", fail_get_file_tree)
+    monkeypatch.setattr(
+        repos_module.github_service,
+        "get_commit_sha",
+        lambda *args: "0123456789abcdef0123456789abcdef01234567",
+    )
 
     asyncio.run(
         repos_module._build_repo_analysis(
@@ -872,6 +887,7 @@ def test_repo_analysis_timeout_stores_timeout_message(client, monkeypatch):
 
 
 def test_build_repo_analysis_marks_ready_when_ai_summary_fails(client, monkeypatch):
+    commit_sha = "0123456789abcdef0123456789abcdef01234567"
     with database_module.SessionLocal() as db:
         repo = Repository(
             owner="octocat",
@@ -895,10 +911,12 @@ def test_build_repo_analysis_marks_ready_when_ai_summary_fails(client, monkeypat
             return repo.stage
 
     def get_file_tree(owner, repo_name, branch):
+        assert branch == commit_sha
         observed_stages.append(get_stage())
         return [{"path": "src/app.py"}]
 
     def fetch_files(owner, repo_name, branch, file_paths):
+        assert branch == commit_sha
         observed_stages.append(get_stage())
         return {"src/app.py": "print('hi')"}
 
@@ -912,6 +930,9 @@ def test_build_repo_analysis_marks_ready_when_ai_summary_fails(client, monkeypat
 
     monkeypatch.setattr(repos_module.github_service, "get_file_tree", get_file_tree)
     monkeypatch.setattr(repos_module.github_service, "fetch_files_concurrent", fetch_files)
+    monkeypatch.setattr(
+        repos_module.github_service, "get_commit_sha", lambda *args: commit_sha
+    )
     monkeypatch.setattr(repos_module.code_parser, "parse", parse_file)
     monkeypatch.setattr(
         repos_module.ai_service,
@@ -936,11 +957,73 @@ def test_build_repo_analysis_marks_ready_when_ai_summary_fails(client, monkeypat
         repo = db.get(Repository, repo_id)
         assert repo is not None
         assert repo.status == "ready"
+        assert repo.commit_sha == commit_sha
         assert repo.stage is None
         assert repo.summary is None
         assert repo.locked_at is None
         assert repo.worker_id is None
     assert observed_stages == ["fetching", "fetching", "parsing", "summarizing"]
+
+
+@pytest.mark.parametrize(
+    ("commit_sha", "expected_ref"),
+    [
+        ("0123456789abcdef0123456789abcdef01234567", "0123456789abcdef0123456789abcdef01234567"),
+        (None, "main"),
+    ],
+)
+def test_file_analysis_fetches_from_pinned_commit_or_legacy_branch(
+    client, monkeypatch, commit_sha, expected_ref
+):
+    with database_module.SessionLocal() as db:
+        repo = Repository(
+            owner="octocat",
+            repo_name="hello-world",
+            github_url="https://github.com/octocat/hello-world",
+            default_branch="main",
+            commit_sha=commit_sha,
+            status="ready",
+        )
+        db.add(repo)
+        db.flush()
+        repo_id = repo.id
+        db.add(
+            FileNode(
+                repo_id=repo_id,
+                file_path="src/app.py",
+                language="python",
+                line_count=1,
+                import_count=0,
+            )
+        )
+        db.commit()
+
+    fetched_refs = []
+
+    def get_file_content(owner, repo_name, ref, file_path):
+        fetched_refs.append(ref)
+        return "print('hi')"
+
+    async def analyze_file(file_path, content, client_ip=None):
+        return {
+            "summary": "summary",
+            "summary_detail": "detail",
+            "complexity": "low",
+            "role": "utility",
+        }
+
+    monkeypatch.setattr(files_module.file_rate_limiter, "allow", lambda ip: True)
+    monkeypatch.setattr(files_module.github_service, "get_file_content", get_file_content)
+    monkeypatch.setattr(files_module.ai_service, "analyze_file", analyze_file)
+
+    response = client.post(
+        "/files/analyze",
+        json={"repo_id": repo_id, "file_path": "src/app.py"},
+        headers={"X-API-Key": "test-api-key"},
+    )
+
+    assert response.status_code == 200
+    assert fetched_refs == [expected_ref]
 
 
 def test_resolve_client_ip_ignores_spoofed_forwarded_header_by_default(monkeypatch):

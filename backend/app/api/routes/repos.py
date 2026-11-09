@@ -278,6 +278,27 @@ def _set_repo_analysis_stage(repo_id: int, stage: str) -> None:
         db.close()
 
 
+def _get_or_store_repo_commit_sha(
+    repo_id: int, owner: str, repo_name: str, branch: str
+) -> str:
+    with SessionLocal() as db:
+        repo = db.get(Repository, repo_id)
+        if repo is None:
+            raise RuntimeError(f"Repository {repo_id} disappeared during analysis")
+        if repo.commit_sha:
+            return repo.commit_sha
+
+    commit_sha = github_service.get_commit_sha(owner, repo_name, branch)
+    with SessionLocal() as db:
+        repo = db.get(Repository, repo_id)
+        if repo is None:
+            raise RuntimeError(f"Repository {repo_id} disappeared during analysis")
+        if repo.commit_sha is None:
+            repo.commit_sha = commit_sha
+        db.commit()
+        return repo.commit_sha
+
+
 def _mark_repo_analysis_failed(
     repo_id: int,
     error_message: str = "Analysis failed",
@@ -390,6 +411,7 @@ def _create_repo_analysis_record(
             repo.repo_name = repo_name
             repo.owner = owner
             repo.default_branch = branch
+            repo.commit_sha = None
             repo.status = "parsing"
             repo.stage = None
             repo.error_message = None
@@ -399,6 +421,7 @@ def _create_repo_analysis_record(
                 repo_name=repo_name,
                 owner=owner,
                 default_branch=branch,
+                commit_sha=None,
                 total_files=0,
                 status="parsing",
                 stage=None,
@@ -497,10 +520,15 @@ async def _build_repo_analysis(
     try:
         logger.info("Starting background analysis for repo {}", repo_id)
         await asyncio.to_thread(_set_repo_analysis_stage, repo_id, "fetching")
-        tree_items = await asyncio.to_thread(github_service.get_file_tree, owner, repo_name, branch)
+        commit_sha = await asyncio.to_thread(
+            _get_or_store_repo_commit_sha, repo_id, owner, repo_name, branch
+        )
+        tree_items = await asyncio.to_thread(
+            github_service.get_file_tree, owner, repo_name, commit_sha
+        )
         file_paths = [item["path"] for item in tree_items]
         contents = await asyncio.to_thread(
-            github_service.fetch_files_concurrent, owner, repo_name, branch, file_paths
+            github_service.fetch_files_concurrent, owner, repo_name, commit_sha, file_paths
         )
 
         await asyncio.to_thread(_set_repo_analysis_stage, repo_id, "parsing")

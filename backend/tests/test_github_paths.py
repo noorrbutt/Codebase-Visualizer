@@ -79,6 +79,33 @@ def test_accepts_normal_nested_path():
     assert "src/app/views/user_profile.py" in called_urls[0]
 
 
+def test_commit_sha_is_accepted_for_tree_and_raw_file_urls():
+    svc = GithubService()
+    sha = "0123456789abcdef0123456789abcdef01234567"
+    called_urls = []
+
+    def fake_get(url, headers=None, timeout=None):
+        called_urls.append(url)
+        resp = requests.Response()
+        resp.status_code = 200
+        if "/git/trees/" in url:
+            resp._content = b'{"tree":[]}'
+        else:
+            resp._content = b"file-content"
+        return resp
+
+    with patch("app.services.github.requests.get", new=fake_get):
+        assert svc.get_file_tree("owner", "repo", sha) == []
+        assert svc.get_file_content("owner", "repo", sha, "src/app.py") == "file-content"
+
+    assert called_urls[0] == (
+        f"https://api.github.com/repos/owner/repo/git/trees/{sha}?recursive=1"
+    )
+    assert called_urls[1] == (
+        f"https://raw.githubusercontent.com/owner/repo/{sha}/src/app.py"
+    )
+
+
 @pytest.mark.parametrize(
     "url",
     [

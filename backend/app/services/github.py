@@ -27,6 +27,7 @@ _RETRY_BASE_DELAY_SECONDS = 1.0
 _TRANSIENT_STATUS_CODES = {500, 502, 503, 504}
 _NAME_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 _BRANCH_RE = re.compile(r"^[A-Za-z0-9_.\-/]+$")
+_COMMIT_SHA_RE = re.compile(r"^[0-9a-fA-F]{40}$")
 
 
 class GithubService:
@@ -110,6 +111,9 @@ class GithubService:
         if not branch:
             raise RepoParseError("branch name must not be empty")
 
+        if _COMMIT_SHA_RE.fullmatch(branch):
+            return
+
         if len(branch) > 255:
             raise RepoParseError("branch name is too long")
 
@@ -163,12 +167,29 @@ class GithubService:
         logger.info("GitHub repo metadata received for {}/{}", owner, repo)
         return metadata
 
-    def get_file_tree(self, owner: str, repo: str, branch: str) -> list[dict]:
-        # Branch names currently come from GitHub metadata responses, but this validation
-        # provides defense in depth if future callers pass a custom branch value.
+    def get_commit_sha(self, owner: str, repo: str, branch: str) -> str:
         self._validate_branch(branch)
+        encoded_branch = urllib.parse.quote(branch, safe="")
+        url = f"https://api.github.com/repos/{owner}/{repo}/commits/{encoded_branch}"
+        logger.info("Fetching GitHub commit: {}", url)
+        response = self._request_with_retry(url)
 
-        url = f"https://api.github.com/repos/{owner}/{repo}/git/trees/{branch}?recursive=1"
+        if response.status_code == 404:
+            raise RepoNotFoundError(f"https://github.com/{owner}/{repo}")
+
+        if response.status_code == 403:
+            self._raise_for_rate_limit(response, owner, repo)
+
+        if response.status_code == 401:
+            raise RepoPrivateError(f"https://github.com/{owner}/{repo}")
+
+        response.raise_for_status()
+        return response.json()["sha"]
+
+    def get_file_tree(self, owner: str, repo: str, ref: str) -> list[dict]:
+        self._validate_branch(ref)
+
+        url = f"https://api.github.com/repos/{owner}/{repo}/git/trees/{ref}?recursive=1"
         logger.info("Fetching GitHub tree: {}", url)
         response = self._request_with_retry(url)
 
@@ -225,25 +246,23 @@ class GithubService:
             logger.warning("Capping repository analysis to {} files from {} discovered files", len(capped), len(filtered))
         return capped
 
-    def get_file_content(self, owner: str, repo: str, branch: str, path: str) -> str:
-        # Branch names currently come from GitHub metadata responses, but this validation
-        # provides defense in depth if future callers pass a custom branch value.
-        self._validate_branch(branch)
+    def get_file_content(self, owner: str, repo: str, ref: str, path: str) -> str:
+        self._validate_branch(ref)
         self._validate_file_path(path)
         # Percent-encode the file path to ensure spaces, #, %, unicode, etc. are safe in the URL.
         encoded_path = urllib.parse.quote(path, safe="/")
-        url = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{encoded_path}"
+        url = f"https://raw.githubusercontent.com/{owner}/{repo}/{ref}/{encoded_path}"
         logger.info("Fetching raw file content: {}", url)
         response = self._request_with_retry(url)
         response.raise_for_status()
         return response.text
 
-    def fetch_files_concurrent(self, owner: str, repo: str, branch: str, paths: list[str]) -> dict[str, str]:
+    def fetch_files_concurrent(self, owner: str, repo: str, ref: str, paths: list[str]) -> dict[str, str]:
         contents: dict[str, str] = {}
         logger.info("Fetching {} files concurrently", len(paths))
 
         with ThreadPoolExecutor(max_workers=10) as executor:
-            futures = {executor.submit(self.get_file_content, owner, repo, branch, path): path for path in paths}
+            futures = {executor.submit(self.get_file_content, owner, repo, ref, path): path for path in paths}
 
             for future in as_completed(futures):
                 path = futures[future]
