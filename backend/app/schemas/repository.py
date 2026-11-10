@@ -31,6 +31,20 @@ class FileNodeOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class MetricNode(BaseModel):
+    path: str
+    count: int
+
+
+class GraphMetrics(BaseModel):
+    cycle_count: int
+    cycles: list[list[str]]
+    top_fan_in: list[MetricNode]
+    top_fan_out: list[MetricNode]
+    orphan_count: int
+    orphans: list[str]
+
+
 class AnalyzeResponse(BaseModel):
     id: int
     repo_name: str
@@ -40,6 +54,7 @@ class AnalyzeResponse(BaseModel):
     summary: str | None
     nodes: list[FileNodeOut]
     edges: list[FileEdge]
+    metrics: GraphMetrics | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

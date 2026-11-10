@@ -243,6 +243,9 @@ def test_analyze_status_and_detail_flow(client, monkeypatch):
     assert detail_response.status_code == 200
     assert detail_response.json()["nodes"][0]["path"] == "src/app.py"
     assert detail_response.json()["edges"][0]["source"] == "src/app.py"
+    assert detail_response.json()["metrics"]["top_fan_out"] == [
+        {"path": "src/app.py", "count": 1}
+    ]
 
 
 def test_get_repo_by_name_is_case_insensitive_and_returns_graph(client):
@@ -280,6 +283,9 @@ def test_get_repo_by_name_is_case_insensitive_and_returns_graph(client):
     assert response.json()["summary"] == "summary"
     assert response.json()["nodes"][0]["path"] == "src/app.py"
     assert response.json()["edges"][0]["target"] == "src/utils.py"
+    assert response.json()["metrics"]["top_fan_out"] == [
+        {"path": "src/app.py", "count": 1}
+    ]
 
 
 def test_get_repo_by_name_returns_404_when_missing(client):

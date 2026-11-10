@@ -31,6 +31,7 @@ from app.exceptions import (
 from app.services.ai import AIService
 from app.services.coordination import RedisConcurrencyGate, RedisMutex
 from app.services.github import GithubService
+from app.services.graph_metrics import compute_graph_metrics
 from app.services.parser import CodeParser
 from app.services.rate_limit import IPRateLimiter
 from app.logging import get_logger
@@ -841,6 +842,7 @@ def get_repo_by_name(owner: str, repo: str, db: Session = Depends(get_db)) -> An
 
     nodes = db.query(FileNode).filter(FileNode.repo_id == record.id).all()
     edges = db.query(FileEdgeModel).filter(FileEdgeModel.repo_id == record.id).all()
+    node_records = _normalize_file_records(nodes)
     return AnalyzeResponse(
         id=record.id,
         repo_name=record.repo_name,
@@ -848,8 +850,12 @@ def get_repo_by_name(owner: str, repo: str, db: Session = Depends(get_db)) -> An
         default_branch=record.default_branch,
         status=record.status,
         summary=record.summary,
-        nodes=_normalize_file_records(nodes),
+        nodes=node_records,
         edges=edges,
+        metrics=compute_graph_metrics(
+            (node.path for node in node_records),
+            ({"source": edge.source, "target": edge.target} for edge in edges),
+        ),
     )
 
 
@@ -861,6 +867,7 @@ def get_repo(repo_id: int, db: Session = Depends(get_db)) -> AnalyzeResponse:
 
     nodes = db.query(FileNode).filter(FileNode.repo_id == repo_id).all()
     edges = db.query(FileEdgeModel).filter(FileEdgeModel.repo_id == repo_id).all()
+    node_records = _normalize_file_records(nodes)
 
     return AnalyzeResponse(
         id=repo.id,
@@ -869,6 +876,10 @@ def get_repo(repo_id: int, db: Session = Depends(get_db)) -> AnalyzeResponse:
         default_branch=repo.default_branch,
         status=repo.status,
         summary=repo.summary,
-        nodes=_normalize_file_records(nodes),
+        nodes=node_records,
         edges=edges,
+        metrics=compute_graph_metrics(
+            (node.path for node in node_records),
+            ({"source": edge.source, "target": edge.target} for edge in edges),
+        ),
     )

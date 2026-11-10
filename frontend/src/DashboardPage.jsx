@@ -100,7 +100,65 @@ const ICONS = {
       <path d="M4 6h16M4 12h16M4 18h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
     </svg>
   ),
+  cycles: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+      <path d="M7 7h5a5 5 0 0 1 0 10h-1M7 7l3-3M7 7l3 3M17 17h-5a5 5 0 0 1 0-10h1m4 10-3-3m3 3-3 3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ),
+  orphans: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+      <circle cx="12" cy="12" r="7" stroke="currentColor" strokeWidth="1.8" />
+      <path d="M12 9v6m-3-3h6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  ),
 };
+
+function MetricPathList({ title, items, onSelectPath, formatItem = (item) => item.path }) {
+  return (
+    <div style={{ minWidth: 0 }}>
+      <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 11, fontWeight: 600, color: "var(--subtle)", letterSpacing: "0.06em", textTransform: "uppercase", margin: "0 0 8px" }}>
+        {title}
+      </p>
+      {items.length > 0 ? items.map((item) => {
+        const path = typeof item === "string" ? item : item.path;
+        return (
+          <button
+            key={path}
+            type="button"
+            onClick={() => onSelectPath(path)}
+            style={{ display: "flex", justifyContent: "space-between", width: "100%", gap: 8, padding: "5px 0", border: 0, background: "transparent", color: "var(--fg-dim)", cursor: "pointer", textAlign: "left", fontFamily: "'DM Mono', monospace", fontSize: 11 }}
+            title={`Select ${path} in graph`}
+          >
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{formatItem(typeof item === "string" ? { path: item } : item)}</span>
+            {typeof item !== "string" && <span style={{ color: "var(--muted)", flexShrink: 0 }}>{item.count}</span>}
+          </button>
+        );
+      }) : (
+        <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 12, color: "var(--subtle)", margin: 0 }}>None</p>
+      )}
+    </div>
+  );
+}
+
+function ArchitectureMetrics({ metrics, onSelectPath }) {
+  return (
+    <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, padding: "18px 20px", boxShadow: "0 1px 2px rgba(16,24,40,0.04)" }}>
+      <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 11, fontWeight: 600, color: "var(--subtle)", letterSpacing: "0.06em", textTransform: "uppercase", margin: "0 0 14px" }}>
+        Architecture metrics
+      </p>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 18 }}>
+        <MetricPathList title="Top fan-in" items={metrics.top_fan_in} onSelectPath={onSelectPath} formatItem={(item) => item.path} />
+        <MetricPathList title="Top fan-out" items={metrics.top_fan_out} onSelectPath={onSelectPath} formatItem={(item) => item.path} />
+        <MetricPathList
+          title={`Cycles (${metrics.cycle_count})`}
+          items={metrics.cycles.flatMap((cycle) => cycle)}
+          onSelectPath={onSelectPath}
+        />
+        <MetricPathList title={`Orphans (${metrics.orphan_count})`} items={metrics.orphans} onSelectPath={onSelectPath} />
+      </div>
+    </div>
+  );
+}
 
 function ChartCard({ title, children, minHeight = 260 }) {
   return (
@@ -149,6 +207,12 @@ export default function DashboardPage({ data, onReset }) {
 
   const totalLines = data.nodes.reduce((s, n) => s + (n.line_count || 0), 0);
   const connectedCount = new Set(data.edges.flatMap((e) => [e.source, e.target])).size;
+  const selectMetricNode = (path) => {
+    const node = data.nodes.find((item) => item.path === path);
+    if (!node) return;
+    setSelectedNode(node);
+    setActiveTab("graph");
+  };
 
   return (
     <div style={{ height: "100vh", display: "flex", flexDirection: "column", background: "var(--bg)" }}>
@@ -301,7 +365,7 @@ export default function DashboardPage({ data, onReset }) {
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(4, 1fr)",
+              gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
               gap: 10,
               marginBottom: 14,
             }}
@@ -332,6 +396,22 @@ export default function DashboardPage({ data, onReset }) {
               icon={ICONS.lines}
               tint={{ bg: "#F5F3FF", fg: "#7C3AED" }}
             />
+            {data.metrics && (
+              <>
+                <StatCard
+                  label="Cycles"
+                  value={data.metrics.cycle_count.toLocaleString()}
+                  icon={ICONS.cycles}
+                  tint={{ bg: "#FFF7ED", fg: "#EA580C" }}
+                />
+                <StatCard
+                  label="Orphans"
+                  value={data.metrics.orphan_count.toLocaleString()}
+                  icon={ICONS.orphans}
+                  tint={{ bg: "#F3F4F6", fg: "#4B5563" }}
+                />
+              </>
+            )}
           </div>
 
           {/* Chart row */}
@@ -353,6 +433,12 @@ export default function DashboardPage({ data, onReset }) {
               <ConnectionsChart nodes={data.nodes} edges={data.edges} />
             </ChartCard>
           </div>
+
+          {data.metrics && (
+            <div style={{ marginTop: 12 }}>
+              <ArchitectureMetrics metrics={data.metrics} onSelectPath={selectMetricNode} />
+            </div>
+          )}
 
           {/* Bottom row */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
