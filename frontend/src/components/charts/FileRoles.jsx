@@ -1,5 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
-import { apiFetch } from "../../utils/api";
+import { useMemo } from "react";
 
 const ROLE_COLOR = {
   entry_point: "#6366F1",
@@ -13,50 +12,20 @@ const ROLE_COLOR = {
   unknown: "#E5E7EB",
 };
 
-export default function FileRoles({ nodes, repoId }) {
-  const [polledNodes, setPolledNodes] = useState(nodes);
-
-  const displayNodes = useMemo(() => {
-    const hasUnanalyzed = nodes.some((n) => n.ai_role === null);
-    return hasUnanalyzed ? polledNodes : nodes;
-  }, [nodes, polledNodes]);
-
-  useEffect(() => {
-    if (!repoId) return;
-
-    const hasUnanalyzed = nodes.some((n) => n.ai_role === null);
-    if (!hasUnanalyzed) return;
-
-    const interval = setInterval(async () => {
-      try {
-        const response = await apiFetch(`/repos/${repoId}`);
-        if (!response.ok) return;
-        const data = await response.json();
-        if (data.status === "ready") {
-          setPolledNodes(data.nodes);
-          clearInterval(interval);
-        }
-      } catch (err) {
-        console.error("Failed to poll repo status:", err);
-      }
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [repoId, nodes]);
-
+export default function FileRoles({ nodes }) {
   const entries = useMemo(() => {
     const roles = {};
-    displayNodes.forEach((n) => {
+    nodes.forEach((n) => {
       if (!n.ai_role) return;
       roles[n.ai_role] = (roles[n.ai_role] || 0) + 1;
     });
     return Object.entries(roles).sort((a, b) => b[1] - a[1]).slice(0, 8);
-  }, [displayNodes]);
+  }, [nodes]);
 
   if (!entries.length) {
     return (
       <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 12, color: "#9CA3AF", margin: 0 }}>
-      Click a file and run "Analyze" to populate this chart
+        Automatic file analysis is pending or unavailable
       </p>
     );
   }

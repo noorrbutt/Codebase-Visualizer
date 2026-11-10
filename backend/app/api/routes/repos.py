@@ -330,6 +330,116 @@ def _analysis_error_message(exc: Exception) -> str:
     return "Analysis failed"
 
 
+def _file_is_analyzed(node: FileNode) -> bool:
+    return (
+        node.analyzed_at is not None
+        and node.ai_summary is not None
+        and node.ai_summary_detail is not None
+        and node.ai_complexity is not None
+        and node.ai_role is not None
+    )
+
+
+async def _auto_analyze_top_files(repo_id: int) -> None:
+    limit = settings.AUTO_ANALYZE_TOP_FILES
+    if limit <= 0:
+        return
+
+    try:
+        with SessionLocal() as db:
+            repo = db.get(Repository, repo_id)
+            if repo is None or repo.status != "ready":
+                return
+
+            owner = repo.owner
+            repo_name = repo.repo_name
+            ref = repo.commit_sha or repo.default_branch
+            nodes = db.query(FileNode).filter(FileNode.repo_id == repo_id).all()
+            edges = db.query(FileEdgeModel).filter(FileEdgeModel.repo_id == repo_id).all()
+            node_paths = {node.file_path for node in nodes}
+            in_degree = dict.fromkeys(node_paths, 0)
+            for edge in edges:
+                if edge.target in in_degree:
+                    in_degree[edge.target] += 1
+
+            candidates = sorted(
+                (node for node in nodes if not _file_is_analyzed(node)),
+                key=lambda node: (-in_degree[node.file_path], node.file_path),
+            )[:limit]
+            candidate_paths = [node.file_path for node in candidates]
+
+        for file_path in candidate_paths:
+            with SessionLocal() as db:
+                node = (
+                    db.query(FileNode)
+                    .filter(
+                        FileNode.repo_id == repo_id,
+                        FileNode.file_path == file_path,
+                    )
+                    .first()
+                )
+                if node is None or _file_is_analyzed(node):
+                    continue
+
+            try:
+                content = await asyncio.to_thread(
+                    github_service.get_file_content,
+                    owner,
+                    repo_name,
+                    ref,
+                    file_path,
+                )
+                analysis = await ai_service.analyze_file(
+                    file_path,
+                    content,
+                    client_ip="system:auto",
+                )
+            except AIServiceError as exc:
+                logger.warning(
+                    "Stopping automatic file analysis for repo {} at {}: {}",
+                    repo_id,
+                    file_path,
+                    exc,
+                )
+                break
+            except Exception:
+                logger.exception(
+                    "Automatic file analysis failed for repo {} at {}",
+                    repo_id,
+                    file_path,
+                )
+                break
+
+            try:
+                with SessionLocal() as db:
+                    node = (
+                        db.query(FileNode)
+                        .filter(
+                            FileNode.repo_id == repo_id,
+                            FileNode.file_path == file_path,
+                        )
+                        .first()
+                    )
+                    if node is None or _file_is_analyzed(node):
+                        continue
+
+                    node.ai_summary = analysis["summary"]
+                    node.ai_summary_detail = analysis["summary_detail"]
+                    node.ai_complexity = analysis["complexity"]
+                    node.ai_role = analysis["role"]
+                    node.analyzed_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                    db.commit()
+            except Exception:
+                logger.exception(
+                    "Failed to save automatic file analysis for repo {} at {}",
+                    repo_id,
+                    file_path,
+                )
+                break
+    except Exception:
+        logger.exception("Automatic file analysis task failed for repo {}", repo_id)
+
+
 def _persist_repo_analysis_files(
     repo_id: int, node_records: list[FileNode], edges: list[FileEdge]
 ) -> bool:
@@ -567,6 +677,8 @@ async def _build_repo_analysis(
             await asyncio.to_thread(
                 _update_repo_analysis_state, repo_id, "ready", summary, True
             )
+            if settings.AUTO_ANALYZE_TOP_FILES > 0:
+                asyncio.create_task(_auto_analyze_top_files(repo_id))
             logger.info("Background repo analysis complete for repo {}", repo_id)
         except AIServiceError as exc:
             await asyncio.to_thread(
@@ -577,6 +689,8 @@ async def _build_repo_analysis(
                 repo_id,
                 exc,
             )
+            if settings.AUTO_ANALYZE_TOP_FILES > 0:
+                asyncio.create_task(_auto_analyze_top_files(repo_id))
             logger.info("Background repo analysis completed without AI summary for repo {}", repo_id)
     except Exception as exc:
         logger.error("Background repo analysis failed for repo {}: {}", repo_id, exc)

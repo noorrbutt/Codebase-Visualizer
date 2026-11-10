@@ -215,6 +215,7 @@ The suite covers import parsing (`test_parser.py`, `test_import_resolution.py`),
 | `VITE_API_KEY` | No | Sent as `X-API-Key` from the browser; mirrors `API_KEY` if set. |
 | `RATE_LIMIT_REQUESTS_PER_MINUTE` | No | Per IP request cap for public endpoints. |
 | `MAX_REPO_FILES` | No | Cap on files ingested per repository analysis. |
+| `AUTO_ANALYZE_TOP_FILES` | No | Number of highest fan-in files to analyze automatically after repository analysis; defaults to `5`, set to `0` to disable. |
 | `MAX_CONCURRENT_REPO_ANALYSES` | No | Global cap on simultaneously running repo analyses. |
 | `AI_MAX_REQUESTS_PER_HOUR` / `AI_MAX_REQUESTS_PER_DAY` | No | Global AI request budget. |
 | `AI_MAX_CLIENT_REQUESTS_PER_HOUR` / `AI_MAX_CLIENT_REQUESTS_PER_DAY` | No | Per client AI request budget. Raise locally (for example 100 / 200) if repeatedly testing from the same machine. |

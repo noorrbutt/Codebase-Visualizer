@@ -18,6 +18,7 @@ import app.main as main_module
 import app.services.rate_limit as rate_limit_module
 from app.database import Base
 from app.exceptions import (
+    AIBudgetExceededError,
     AIServiceError,
     GithubRateLimitError,
     RepoNotFoundError,
@@ -1015,6 +1016,125 @@ def test_build_repo_analysis_marks_ready_when_ai_summary_fails(client, monkeypat
         assert repo.locked_at is None
         assert repo.worker_id is None
     assert observed_stages == ["fetching", "fetching", "parsing", "summarizing"]
+
+
+def _create_auto_analysis_repo():
+    with database_module.SessionLocal() as db:
+        repo = Repository(
+            owner="octocat",
+            repo_name="auto-analysis",
+            github_url="https://github.com/octocat/auto-analysis",
+            default_branch="main",
+            commit_sha="0123456789abcdef0123456789abcdef01234567",
+            status="ready",
+        )
+        db.add(repo)
+        db.flush()
+        repo_id = repo.id
+        for path in ["src/a.py", "src/b.py", "src/c.py"]:
+            db.add(
+                FileNode(
+                    repo_id=repo_id,
+                    file_path=path,
+                    language="python",
+                    line_count=1,
+                    import_count=0,
+                )
+            )
+        db.add_all(
+            [
+                FileEdge(repo_id=repo_id, source="src/b.py", target="src/a.py"),
+                FileEdge(repo_id=repo_id, source="src/c.py", target="src/a.py"),
+            ]
+        )
+        db.commit()
+        return repo_id
+
+
+def test_auto_file_analysis_stops_when_ai_budget_is_exceeded(client, monkeypatch):
+    repo_id = _create_auto_analysis_repo()
+    monkeypatch.setattr(repos_module.settings, "AUTO_ANALYZE_TOP_FILES", 3)
+    fetched_paths = []
+    analyzed_paths = []
+
+    def get_file_content(owner, repo_name, ref, file_path):
+        fetched_paths.append((owner, repo_name, ref, file_path))
+        return "print('hi')"
+
+    async def analyze_file(file_path, content, client_ip=None):
+        analyzed_paths.append((file_path, client_ip))
+        raise AIBudgetExceededError("budget exceeded")
+
+    monkeypatch.setattr(repos_module.github_service, "get_file_content", get_file_content)
+    monkeypatch.setattr(repos_module.ai_service, "analyze_file", analyze_file)
+
+    asyncio.run(repos_module._auto_analyze_top_files(repo_id))
+
+    assert analyzed_paths == [("src/a.py", "system:auto")]
+    assert fetched_paths == [
+        ("octocat", "auto-analysis", "0123456789abcdef0123456789abcdef01234567", "src/a.py")
+    ]
+    with database_module.SessionLocal() as db:
+        repo = db.get(Repository, repo_id)
+        assert repo is not None
+        assert repo.status == "ready"
+        assert repo.stage is None
+
+
+def test_auto_file_analysis_is_disabled_at_zero(client, monkeypatch):
+    repo_id = _create_auto_analysis_repo()
+    monkeypatch.setattr(repos_module.settings, "AUTO_ANALYZE_TOP_FILES", 0)
+    monkeypatch.setattr(
+        repos_module.github_service,
+        "get_file_content",
+        lambda *args: pytest.fail("GitHub content should not be fetched when auto-analysis is disabled"),
+    )
+
+    asyncio.run(repos_module._auto_analyze_top_files(repo_id))
+
+    with database_module.SessionLocal() as db:
+        repo = db.get(Repository, repo_id)
+        assert repo is not None
+        assert repo.status == "ready"
+
+
+def test_auto_file_analysis_persists_results_without_changing_repo_status(client, monkeypatch):
+    repo_id = _create_auto_analysis_repo()
+    monkeypatch.setattr(repos_module.settings, "AUTO_ANALYZE_TOP_FILES", 1)
+    monkeypatch.setattr(
+        repos_module.github_service,
+        "get_file_content",
+        lambda *args: "print('hi')",
+    )
+    analyzed_clients = []
+
+    async def analyze_file(file_path, content, client_ip=None):
+        analyzed_clients.append(client_ip)
+        return {
+            "summary": "summary",
+            "summary_detail": "detail",
+            "complexity": "low",
+            "role": "utility",
+        }
+
+    monkeypatch.setattr(repos_module.ai_service, "analyze_file", analyze_file)
+
+    asyncio.run(repos_module._auto_analyze_top_files(repo_id))
+
+    with database_module.SessionLocal() as db:
+        repo = db.get(Repository, repo_id)
+        node = (
+            db.query(FileNode)
+            .filter(FileNode.repo_id == repo_id, FileNode.file_path == "src/a.py")
+            .one()
+        )
+        assert repo is not None
+        assert repo.status == "ready"
+        assert repo.stage is None
+        assert node.ai_complexity == "low"
+        assert node.ai_role == "utility"
+        assert node.analyzed_at is not None
+    assert analyzed_clients == ["system:auto"]
 
 
 @pytest.mark.parametrize(

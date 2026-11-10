@@ -1,5 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
-import { apiFetch } from "../../utils/api";
+import { useMemo } from "react";
 
 const BARS = [
   { key: "low",     label: "Low",  color: "#10B981" },
@@ -8,46 +7,16 @@ const BARS = [
   { key: "unknown", label: "N/A",  color: "#E5E7EB" },
 ];
 
-export default function ComplexityChart({ nodes, repoId }) {
-  const [polledNodes, setPolledNodes] = useState(nodes);
-
-  const displayNodes = useMemo(() => {
-    const hasUnanalyzed = nodes.some((n) => n.ai_complexity === null);
-    return hasUnanalyzed ? polledNodes : nodes;
-  }, [nodes, polledNodes]);
-
-  useEffect(() => {
-    if (!repoId) return;
-
-    const hasUnanalyzed = nodes.some((n) => n.ai_complexity === null);
-    if (!hasUnanalyzed) return;
-
-    const interval = setInterval(async () => {
-      try {
-        const response = await apiFetch(`/repos/${repoId}`);
-        if (!response.ok) return;
-        const data = await response.json();
-        if (data.status === "ready") {
-          setPolledNodes(data.nodes);
-          clearInterval(interval);
-        }
-      } catch (err) {
-        console.error("Failed to poll repo status:", err);
-      }
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [repoId, nodes]);
-
+export default function ComplexityChart({ nodes }) {
   const counts = useMemo(() => {
     const c = { low: 0, medium: 0, high: 0, unknown: 0 };
-    displayNodes.forEach((n) => {
+    nodes.forEach((n) => {
       const k = n.ai_complexity?.toLowerCase();
       if (k === "low" || k === "medium" || k === "high") c[k]++;
       else c.unknown++;
     });
     return c;
-  }, [displayNodes]);
+  }, [nodes]);
 
   const total = Object.values(counts).reduce((s, v) => s + v, 0);
   const analyzed = counts.low + counts.medium + counts.high;
@@ -89,7 +58,7 @@ export default function ComplexityChart({ nodes, repoId }) {
         }}
       >
         <span style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 12, color: "#9CA3AF" }}>
-        Click a file and run "Analyze" to populate this chart
+          Automatic file analysis is pending or unavailable
         </span>
         <span style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 11, color: "#D1D5DB" }}>
           Results appear once AI analysis finishes
