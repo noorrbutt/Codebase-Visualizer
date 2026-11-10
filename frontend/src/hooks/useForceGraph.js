@@ -1,7 +1,14 @@
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useMemo, useRef, useCallback } from "react";
 import { getLangColor } from "../utils/lang";
 
-export function useForceGraph(nodes, edges, canvasRef, selectedNode, onSelectNode) {
+export function useForceGraph(
+  nodes,
+  edges,
+  canvasRef,
+  selectedNode,
+  onSelectNode,
+  { visiblePaths, searchQuery, neighborhoodOnly },
+) {
   const simRef = useRef(null);
   const animRef = useRef(null);
   const transformRef = useRef({ x: 0, y: 0, scale: 1 });
@@ -9,6 +16,29 @@ export function useForceGraph(nodes, edges, canvasRef, selectedNode, onSelectNod
   const dragStartRef = useRef(null);
   const dragNodeRef = useRef(null);
   const hoveredRef = useRef(null);
+  const allowedPaths = useMemo(() => {
+    const allowed = new Set(visiblePaths);
+    if (!neighborhoodOnly || !selectedNode) return allowed;
+    allowed.clear();
+    if (visiblePaths.has(selectedNode.path)) allowed.add(selectedNode.path);
+    edges.forEach((edge) => {
+      if (edge.source === selectedNode.path && visiblePaths.has(edge.target)) {
+        allowed.add(edge.target);
+      }
+      if (edge.target === selectedNode.path && visiblePaths.has(edge.source)) {
+        allowed.add(edge.source);
+      }
+    });
+    return allowed;
+  }, [edges, neighborhoodOnly, selectedNode, visiblePaths]);
+  const viewRef = useRef({ edges, selectedNode, allowedPaths, searchQuery });
+  useEffect(() => {
+    viewRef.current = { edges, selectedNode, allowedPaths, searchQuery };
+  }, [edges, selectedNode, allowedPaths, searchQuery]);
+
+  const isNodeVisible = useCallback((path) => {
+    return viewRef.current.allowedPaths.has(path);
+  }, []);
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
@@ -27,37 +57,47 @@ export function useForceGraph(nodes, edges, canvasRef, selectedNode, onSelectNod
     const nodeMap = {};
     simRef.current.forEach((n) => { nodeMap[n.path] = n; });
 
+    const view = viewRef.current;
     const highlightedNodeIds = new Set();
-    if (selectedNode) {
-      highlightedNodeIds.add(selectedNode.path);
-      edges.forEach((e) => {
-        if (e.source === selectedNode.path) highlightedNodeIds.add(e.target);
-        if (e.target === selectedNode.path) highlightedNodeIds.add(e.source);
+    if (view.selectedNode) {
+      highlightedNodeIds.add(view.selectedNode.path);
+      view.edges.forEach((e) => {
+        if (e.source === view.selectedNode.path) highlightedNodeIds.add(e.target);
+        if (e.target === view.selectedNode.path) highlightedNodeIds.add(e.source);
       });
     }
+    const isVisible = (path) => view.allowedPaths.has(path);
+    const query = view.searchQuery.trim().toLowerCase();
 
     // Draw edges
-    edges.forEach((e) => {
+    view.edges.forEach((e) => {
+      if (!isVisible(e.source) || !isVisible(e.target)) return;
       const s = nodeMap[e.source];
       const t = nodeMap[e.target];
       if (!s || !t) return;
       const isHighlighted =
-        selectedNode &&
-        (e.source === selectedNode.path || e.target === selectedNode.path);
+        view.selectedNode &&
+        (e.source === view.selectedNode.path || e.target === view.selectedNode.path);
       ctx.beginPath();
       ctx.moveTo(s.x, s.y);
       ctx.lineTo(t.x, t.y);
-      ctx.strokeStyle = isHighlighted ? "rgba(99,102,241,0.55)" : "rgba(0,0,0,0.06)";
+      const isSearchMatch =
+        !query || e.source.toLowerCase().includes(query) || e.target.toLowerCase().includes(query);
+      ctx.strokeStyle = isHighlighted
+        ? "rgba(99,102,241,0.55)"
+        : isSearchMatch ? "rgba(0,0,0,0.06)" : "rgba(0,0,0,0.015)";
       ctx.lineWidth = isHighlighted ? 1.5 / scale : 0.8 / scale;
       ctx.stroke();
     });
 
     // Draw nodes
     simRef.current.forEach((n) => {
-      const isSelected = selectedNode?.path === n.path;
+      if (!isVisible(n.path)) return;
+      const isSelected = view.selectedNode?.path === n.path;
       const isHovered = hoveredRef.current === n.path;
       const isConnected = highlightedNodeIds.has(n.path);
-      const isDimmed = selectedNode && !isSelected && !isConnected;
+      const isSearchMatch = !query || n.path.toLowerCase().includes(query);
+      const isDimmed = (view.selectedNode && !isSelected && !isConnected) || !isSearchMatch;
       const r = Math.max(5, Math.min(13, 5 + (n.import_count || 0) * 1.4));
 
       ctx.beginPath();
@@ -88,7 +128,7 @@ export function useForceGraph(nodes, edges, canvasRef, selectedNode, onSelectNod
     });
 
     ctx.restore();
-  }, [canvasRef, edges, selectedNode]);
+  }, [canvasRef]);
 
   useEffect(() => {
     if (!nodes.length) return;
@@ -104,6 +144,9 @@ export function useForceGraph(nodes, edges, canvasRef, selectedNode, onSelectNod
     simRef.current = sim;
     const nodeMap = {};
     sim.forEach((n) => { nodeMap[n.path] = n; });
+    const directoryByPath = new Map(
+      sim.map((node) => [node.path, node.path.includes("/") ? node.path.split("/")[0] : "(root)"]),
+    );
 
     let tick = 0;
     const step = () => {
@@ -140,6 +183,25 @@ export function useForceGraph(nodes, edges, canvasRef, selectedNode, onSelectNod
         t.vy -= (dy / d) * f;
       });
 
+      const directoryCenters = new Map();
+      sim.forEach((node) => {
+        const directory = directoryByPath.get(node.path);
+        const center = directoryCenters.get(directory) || { x: 0, y: 0, count: 0 };
+        center.x += node.x;
+        center.y += node.y;
+        center.count += 1;
+        directoryCenters.set(directory, center);
+      });
+      directoryCenters.forEach((center) => {
+        center.x /= center.count;
+        center.y /= center.count;
+      });
+      sim.forEach((node) => {
+        const center = directoryCenters.get(directoryByPath.get(node.path));
+        node.vx += (center.x - node.x) * 0.0015 * alpha;
+        node.vy += (center.y - node.y) * 0.0015 * alpha;
+      });
+
       sim.forEach((n) => {
         if (n.fixed) return;
         n.vx *= 0.72;
@@ -156,7 +218,7 @@ export function useForceGraph(nodes, edges, canvasRef, selectedNode, onSelectNod
     return () => cancelAnimationFrame(animRef.current);
   }, [nodes, edges, draw]);
 
-  useEffect(() => { draw(); }, [selectedNode, draw]);
+  useEffect(() => { draw(); });
 
   const getNode = useCallback((ex, ey) => {
     const canvas = canvasRef.current;
@@ -167,11 +229,12 @@ export function useForceGraph(nodes, edges, canvasRef, selectedNode, onSelectNod
     const wy = (ey - rect.top - y) / scale;
     return (
       simRef.current.find((n) => {
+        if (!isNodeVisible(n.path)) return false;
         const r = Math.max(5, Math.min(13, 5 + (n.import_count || 0) * 1.4));
         return Math.hypot(n.x - wx, n.y - wy) <= r / scale + 4;
       }) || null
     );
-  }, [canvasRef]);
+  }, [canvasRef, isNodeVisible]);
 
   const onMouseDown = useCallback((e) => {
     const node = getNode(e.clientX, e.clientY);
@@ -240,5 +303,19 @@ export function useForceGraph(nodes, edges, canvasRef, selectedNode, onSelectNod
     onSelectNode(node);
   }, [getNode, onSelectNode]);
 
-  return { onMouseDown, onMouseMove, onMouseUp, onWheel, onClick };
+  const centerNode = useCallback((path) => {
+    const node = simRef.current?.find((item) => item.path === path);
+    const canvas = canvasRef.current;
+    if (!node || !canvas) return;
+
+    const scale = Math.max(0.65, Math.min(1.5, transformRef.current.scale));
+    transformRef.current = {
+      x: canvas.clientWidth / 2 - node.x * scale,
+      y: canvas.clientHeight / 2 - node.y * scale,
+      scale,
+    };
+    draw();
+  }, [canvasRef, draw]);
+
+  return { onMouseDown, onMouseMove, onMouseUp, onWheel, onClick, centerNode };
 }
