@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path, PurePosixPath
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 
@@ -819,6 +820,37 @@ def list_repos(
         )
         for repo in repos
     ]
+
+
+@router.get(
+    "/by-name/{owner}/{repo}",
+    response_model=AnalyzeResponse,
+    dependencies=[Depends(_require_api_key)],
+)
+def get_repo_by_name(owner: str, repo: str, db: Session = Depends(get_db)) -> AnalyzeResponse:
+    record = (
+        db.query(Repository)
+        .filter(
+            func.lower(Repository.owner) == owner.lower(),
+            func.lower(Repository.repo_name) == repo.lower(),
+        )
+        .first()
+    )
+    if record is None:
+        raise HTTPException(status_code=404, detail="Repository not found")
+
+    nodes = db.query(FileNode).filter(FileNode.repo_id == record.id).all()
+    edges = db.query(FileEdgeModel).filter(FileEdgeModel.repo_id == record.id).all()
+    return AnalyzeResponse(
+        id=record.id,
+        repo_name=record.repo_name,
+        owner=record.owner,
+        default_branch=record.default_branch,
+        status=record.status,
+        summary=record.summary,
+        nodes=_normalize_file_records(nodes),
+        edges=edges,
+    )
 
 
 @router.get("/{repo_id}", response_model=AnalyzeResponse, dependencies=[Depends(_require_api_key)])

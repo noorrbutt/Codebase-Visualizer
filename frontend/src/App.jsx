@@ -4,6 +4,21 @@ import { getLangColor } from "./utils/lang";
 import { apiFetch } from "./utils/api";
 import { pollRepoStatus } from "./utils/poll";
 
+function getRepoPath(owner, repo) {
+  return `/r/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
+}
+
+function parseRepoPath(pathname) {
+  const match = pathname.match(/^\/r\/([^/]+)\/([^/]+)\/?$/);
+  if (!match) return null;
+
+  try {
+    return { owner: decodeURIComponent(match[1]), repo: decodeURIComponent(match[2]) };
+  } catch {
+    return null;
+  }
+}
+
 function HomePage({ onAnalyze, onOpenRepo, loading, externalError, onClearError, initialUrl }) {
   const [url, setUrl] = useState(initialUrl);
   const [error, setError] = useState("");
@@ -211,17 +226,23 @@ function LoadingPage({ repoName, stage }) {
 }
 
 export default function App() {
-  const [view, setView] = useState("home");
-  const [loading, setLoading] = useState(false);
-  const [repoName, setRepoName] = useState("");
+  const [view, setView] = useState(() => parseRepoPath(window.location.pathname) ? "loading" : "home");
+  const [loading, setLoading] = useState(() => Boolean(parseRepoPath(window.location.pathname)));
+  const [repoName, setRepoName] = useState(() => {
+    const repoPath = parseRepoPath(window.location.pathname);
+    return repoPath ? `${repoPath.owner}/${repoPath.repo}` : "";
+  });
   const [pollStage, setPollStage] = useState("fetching");
   const [data, setData] = useState(null);
   const [analysisError, setAnalysisError] = useState("");
   const [failureMessage, setFailureMessage] = useState("");
   const [retryUrl, setRetryUrl] = useState("");
+  const [pathname, setPathname] = useState(() => window.location.pathname);
   const pollRef = useRef(null);
+  const routeGenerationRef = useRef(0);
+  const routeActionsRef = useRef(null);
 
-  const analyze = async (url) => {
+  const analyze = async (url, isCurrent = () => true) => {
     setLoading(true);
     setView("loading");
     setRetryUrl(url);
@@ -236,16 +257,19 @@ export default function App() {
         },
         body: JSON.stringify({ github_url: url }),
       });
+      if (!isCurrent()) return;
       if (!res.ok) {
         const errorBody = await res.json().catch(() => null);
         const detail = errorBody?.detail || errorBody?.message || res.statusText || "Analysis failed";
         throw new Error(detail);
       }
       const json = await res.json();
+      if (!isCurrent()) return;
       setData(json);
       setPollStage("fetching");
-      startPolling(json.id);
+      startPolling(json.id, isCurrent);
     } catch (error) {
+      if (!isCurrent()) return;
       const message = error instanceof Error ? error.message : "Analysis failed";
       setLoading(false);
       setView("home");
@@ -253,15 +277,21 @@ export default function App() {
     }
   };
 
-  const fetchRepo = async (id) => {
+  const fetchRepo = async (id, pushHistory = true, isCurrent = () => true) => {
     try {
       const res = await apiFetch(`/repos/${id}`);
       if (!res.ok) throw new Error("Could not load repository");
       const json = await res.json();
+      if (!isCurrent()) return;
       setData(json);
       setLoading(false);
       setView("dashboard");
+      if (pushHistory) {
+        const path = getRepoPath(json.owner, json.repo_name);
+        if (window.location.pathname !== path) window.history.pushState(null, "", path);
+      }
     } catch {
+      if (!isCurrent()) return;
       setLoading(false);
       setView("home");
       setAnalysisError("Failed to load repository after analysis completed.");
@@ -276,12 +306,15 @@ export default function App() {
     fetchRepo(repo.id);
   };
 
-  const startPolling = (id) => {
+  const startPolling = (id, isCurrent = () => true) => {
     pollRef.current?.();
     pollRef.current = pollRepoStatus(id, {
-      onStatus: (_status, stage) => setPollStage(stage),
-      onReady: () => fetchRepo(id),
+      onStatus: (_status, stage) => {
+        if (isCurrent()) setPollStage(stage);
+      },
+      onReady: () => fetchRepo(id, true, isCurrent),
       onError: (message) => {
+        if (!isCurrent()) return;
         pollRef.current = null;
         setFailureMessage(message);
         setLoading(false);
@@ -290,9 +323,95 @@ export default function App() {
     });
   };
 
+  useEffect(() => {
+    routeActionsRef.current = { analyze, startPolling };
+  });
+
+  useEffect(() => {
+    const handlePopState = () => {
+      const currentPath = window.location.pathname;
+      const repoPath = parseRepoPath(currentPath);
+      routeGenerationRef.current += 1;
+      pollRef.current?.();
+      pollRef.current = null;
+      setPathname(currentPath);
+
+      if (repoPath) {
+        setLoading(true);
+        setView("loading");
+        setRepoName(`${repoPath.owner}/${repoPath.repo}`);
+        setAnalysisError("");
+        setFailureMessage("");
+      } else {
+        setView("home");
+        setData(null);
+        setLoading(false);
+        setRepoName("");
+        setFailureMessage("");
+        setAnalysisError("");
+      }
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+
+  useEffect(() => {
+    const generation = routeGenerationRef.current + 1;
+    routeGenerationRef.current = generation;
+    pollRef.current?.();
+    pollRef.current = null;
+    const isCurrent = () => routeGenerationRef.current === generation;
+    const repoPath = parseRepoPath(pathname);
+
+    if (!repoPath) return;
+
+    const { owner, repo } = repoPath;
+
+    apiFetch(`/repos/by-name/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`)
+      .then(async (response) => {
+        if (!isCurrent()) return;
+        if (response.status === 404) {
+          await routeActionsRef.current.analyze(`https://github.com/${owner}/${repo}`, isCurrent);
+          return;
+        }
+        if (!response.ok) throw new Error("Could not load repository");
+
+        const json = await response.json();
+        if (!isCurrent()) return;
+        if (json.status === "ready") {
+          setData(json);
+          setLoading(false);
+          setView("dashboard");
+        } else if (json.status === "parsing") {
+          setPollStage("fetching");
+          routeActionsRef.current.startPolling(json.id, isCurrent);
+        } else {
+          setFailureMessage("This repository analysis failed. Try analyzing it again.");
+          setLoading(false);
+          setView("error");
+        }
+      })
+      .catch((error) => {
+        if (!isCurrent()) return;
+        setLoading(false);
+        setView("home");
+        setAnalysisError(error instanceof Error ? error.message : "Could not load repository");
+      });
+
+    return () => {
+      if (routeGenerationRef.current === generation) {
+        routeGenerationRef.current += 1;
+        pollRef.current?.();
+        pollRef.current = null;
+      }
+    };
+  }, [pathname]);
+
   const reset = () => {
     pollRef.current?.();
     pollRef.current = null;
+    window.history.pushState(null, "", "/");
+    setPathname("/");
     setView("home");
     setData(null);
     setLoading(false);
@@ -339,11 +458,7 @@ export default function App() {
             </p>
             <button
               type="button"
-              onClick={() => {
-                setData(null);
-                setFailureMessage("");
-                setView("home");
-              }}
+              onClick={reset}
               style={{ padding: "12px 20px", background: "var(--fg)", color: "var(--surface)", border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", fontSize: 14, fontWeight: 500 }}
             >
               Try again

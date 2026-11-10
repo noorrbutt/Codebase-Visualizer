@@ -245,6 +245,52 @@ def test_analyze_status_and_detail_flow(client, monkeypatch):
     assert detail_response.json()["edges"][0]["source"] == "src/app.py"
 
 
+def test_get_repo_by_name_is_case_insensitive_and_returns_graph(client):
+    with database_module.SessionLocal() as db:
+        repo = Repository(
+            owner="OctoCat",
+            repo_name="Hello-World",
+            github_url="https://github.com/OctoCat/Hello-World",
+            default_branch="main",
+            status="ready",
+            summary="summary",
+        )
+        db.add(repo)
+        db.flush()
+        db.add(
+            FileNode(
+                repo_id=repo.id,
+                file_path="src/app.py",
+                language="python",
+                line_count=1,
+                import_count=0,
+            )
+        )
+        db.add(FileEdge(repo_id=repo.id, source="src/app.py", target="src/utils.py"))
+        db.commit()
+        repo_id = repo.id
+
+    response = client.get(
+        "/repos/by-name/oCtOcAt/hElLo-WoRlD",
+        headers={"X-API-Key": "test-api-key"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["id"] == repo_id
+    assert response.json()["summary"] == "summary"
+    assert response.json()["nodes"][0]["path"] == "src/app.py"
+    assert response.json()["edges"][0]["target"] == "src/utils.py"
+
+
+def test_get_repo_by_name_returns_404_when_missing(client):
+    response = client.get(
+        "/repos/by-name/octocat/missing",
+        headers={"X-API-Key": "test-api-key"},
+    )
+
+    assert response.status_code == 404
+
+
 def test_analyze_reuses_ready_repo_within_cache_ttl(client, monkeypatch):
     with database_module.SessionLocal() as db:
         repo = Repository(
