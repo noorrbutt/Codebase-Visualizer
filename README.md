@@ -52,6 +52,7 @@ Turn any public GitHub repository into an interactive dependency graph with on-d
 
 ## Features
 
+- One-click example repositories and a home-page list of recently analyzed ready repositories
 - Interactive dependency graph (force directed) with pan, zoom, and drag
 - On-demand per-file AI analysis when a file is selected: role classification, complexity estimate, and short summary
 - Language breakdown charts and simple metrics (line counts, import counts)
@@ -136,6 +137,8 @@ The API is now live at `http://localhost:8000`, with interactive docs at `http:/
 
 Background tasks perform AI analysis and repository summarization asynchronously. Large repositories may take a while to finish processing; poll `GET /repos/{id}/status` to track progress.
 
+To populate the demo repositories against a running backend, set `API_URL` and optionally `API_KEY`, then run `python scripts/seed_examples.py` from the `backend` directory.
+
 ### 2. Frontend
 
 ```bash
@@ -156,7 +159,7 @@ Full interactive schema is available at `/docs` once the backend is running. Sum
 | Method | Endpoint | Description | Auth |
 |---|---|---|---|
 | `POST` | `/repos/analyze` | Queue analysis of a public GitHub repo (`{"github_url": "..."}`). Returns the created repo record; graph data populates asynchronously. | `X-API-Key` (if `API_KEY` is set) |
-| `GET` | `/repos/` | List all previously analyzed repositories. | `X-API-Key` (if `API_KEY` is set) |
+| `GET` | `/repos/` | List previously analyzed repositories; supports `status`, `limit`, and `offset` query parameters (for example, `/repos/?status=ready&limit=6`). | `X-API-Key` (if `API_KEY` is set) |
 | `GET` | `/repos/{repo_id}` | Fetch a repo's full graph (nodes and edges) and status. | `X-API-Key` (if `API_KEY` is set) |
 | `GET` | `/repos/{repo_id}/status` | Poll analysis status (`parsing`, `ready`, or `failed`). | `X-API-Key` (if `API_KEY` is set) |
 | `POST` | `/files/analyze` | Trigger or retrieve AI analysis (summary, complexity, role) for a single file in an analyzed repo. | `X-API-Key` (if `API_KEY` is set) |

@@ -4,9 +4,50 @@ import { getLangColor } from "./utils/lang";
 import { apiFetch } from "./utils/api";
 import { pollRepoStatus } from "./utils/poll";
 
-function HomePage({ onAnalyze, loading, externalError, onClearError, initialUrl }) {
+function HomePage({ onAnalyze, onOpenRepo, loading, externalError, onClearError, initialUrl }) {
   const [url, setUrl] = useState(initialUrl);
   const [error, setError] = useState("");
+  const [recentRepos, setRecentRepos] = useState([]);
+
+  useEffect(() => {
+    let active = true;
+    apiFetch("/repos/?status=ready&limit=6")
+      .then((response) => {
+        if (!response.ok) throw new Error("Could not load recently analyzed repositories");
+        return response.json();
+      })
+      .then((repos) => {
+        if (active && Array.isArray(repos)) setRecentRepos(repos);
+      })
+      .catch(() => {
+        if (active) setRecentRepos([]);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const examples = [
+    { owner: "pallets", repo: "flask" },
+    { owner: "tiangolo", repo: "fastapi" },
+    { owner: "expressjs", repo: "express" },
+    { owner: "vitejs", repo: "vite" },
+  ];
+
+  const handleExampleClick = (example) => {
+    const exampleUrl = `https://github.com/${example.owner}/${example.repo}`;
+    const readyRepo = recentRepos.find(
+      (repo) => repo.github_url.replace(/\/+$/, "").toLowerCase() === exampleUrl.toLowerCase(),
+    );
+    if (readyRepo) {
+      onOpenRepo(readyRepo);
+    } else {
+      setError("");
+      onClearError();
+      onAnalyze(exampleUrl);
+    }
+  };
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -70,6 +111,46 @@ function HomePage({ onAnalyze, loading, externalError, onClearError, initialUrl 
             </span>
           ))}
         </div>
+
+        <section aria-label="Example repositories" style={{ marginTop: "2rem" }}>
+          <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 12, color: "var(--muted)", marginBottom: 10 }}>
+            Try an example
+          </p>
+          <div style={{ display: "flex", justifyContent: "center", gap: 8, flexWrap: "wrap" }}>
+            {examples.map((example) => (
+              <button
+                key={`${example.owner}/${example.repo}`}
+                type="button"
+                disabled={loading}
+                onClick={() => handleExampleClick(example)}
+                style={{ padding: "8px 12px", border: "1px solid var(--border)", borderRadius: 999, background: "var(--surface)", color: "var(--fg)", cursor: loading ? "not-allowed" : "pointer", fontFamily: "'DM Mono', monospace", fontSize: 12, opacity: loading ? 0.6 : 1 }}
+              >
+                {example.owner}/{example.repo}
+              </button>
+            ))}
+          </div>
+        </section>
+
+        {recentRepos.length > 0 && (
+          <section aria-label="Recently analyzed repositories" style={{ marginTop: "1.5rem" }}>
+            <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 12, color: "var(--muted)", marginBottom: 10 }}>
+              Recently analyzed
+            </p>
+            <div style={{ display: "flex", justifyContent: "center", gap: 8, flexWrap: "wrap" }}>
+              {recentRepos.map((repo) => (
+                <button
+                  key={repo.id}
+                  type="button"
+                  disabled={loading}
+                  onClick={() => onOpenRepo(repo)}
+                  style={{ padding: "8px 12px", border: "1px solid var(--border)", borderRadius: 999, background: "var(--surface)", color: "var(--fg)", cursor: loading ? "not-allowed" : "pointer", fontFamily: "'DM Mono', monospace", fontSize: 12, opacity: loading ? 0.6 : 1 }}
+                >
+                  {repo.owner}/{repo.repo_name}
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
       </div>
     </div>
   );
@@ -187,6 +268,14 @@ export default function App() {
     }
   };
 
+  const openReadyRepo = (repo) => {
+    setLoading(true);
+    setView("loading");
+    setRepoName(`${repo.owner}/${repo.repo_name}`);
+    setAnalysisError("");
+    fetchRepo(repo.id);
+  };
+
   const startPolling = (id) => {
     pollRef.current?.();
     pollRef.current = pollRepoStatus(id, {
@@ -236,7 +325,7 @@ export default function App() {
         input:focus { border-color: var(--fg) !important; }
         ::-webkit-scrollbar-thumb { background: #E5E7EB; }
       `}</style>
-      {view === "home" && <HomePage onAnalyze={analyze} loading={loading} externalError={analysisError} onClearError={() => setAnalysisError("")} initialUrl={retryUrl} />}
+      {view === "home" && <HomePage onAnalyze={analyze} onOpenRepo={openReadyRepo} loading={loading} externalError={analysisError} onClearError={() => setAnalysisError("")} initialUrl={retryUrl} />}
       {view === "loading" && <LoadingPage repoName={repoName} stage={pollStage} />}
       {view === "dashboard" && data && <DashboardPage data={data} onReset={reset} />}
       {view === "error" && (
