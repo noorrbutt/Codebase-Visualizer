@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import re
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path, PurePosixPath
