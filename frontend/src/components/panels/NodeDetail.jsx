@@ -34,7 +34,7 @@ function MetaGrid({ items }) {
             style={{
               fontFamily: "'DM Sans', sans-serif",
               fontSize: 10,
-              color: "var(--subtle)",
+              color: "var(--muted)",
               margin: "0 0 2px",
             }}
           >
@@ -133,6 +133,18 @@ export default function NodeDetail({ node, edges, repoId, repoOwner, repoName, r
     if (t === "info") fetchAnalysis();
   }
 
+  function handleTabKeyDown(event, currentTab) {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const nextTab = event.key === "Home" || (event.key === "ArrowLeft" && currentTab === "content")
+      ? "info"
+      : event.key === "End" || (event.key === "ArrowRight" && currentTab === "info")
+        ? "content"
+        : currentTab;
+    handleTabChange(nextTab);
+    document.getElementById(`file-detail-tab-${nextTab}`)?.focus();
+  }
+
   const effectiveAnalysis = analysis || (node.ai_summary ? {
     ai_summary: node.ai_summary,
     ai_summary_detail: node.ai_summary_detail,
@@ -140,7 +152,7 @@ export default function NodeDetail({ node, edges, repoId, repoOwner, repoName, r
     ai_role: node.ai_role,
   } : null);
 
-  const complexityColor = COMPLEXITY_COLOR[effectiveAnalysis?.ai_complexity?.toLowerCase()] || "var(--subtle)";
+  const complexityColor = COMPLEXITY_COLOR[effectiveAnalysis?.ai_complexity?.toLowerCase()] || "var(--muted)";
 
   return (
     <div
@@ -193,7 +205,7 @@ export default function NodeDetail({ node, edges, repoId, repoOwner, repoName, r
               style={{
                 fontFamily: "'DM Mono', monospace",
                 fontSize: 10,
-                color: "var(--subtle)",
+                color: "var(--muted)",
                 margin: 0,
                 wordBreak: "break-all",
               }}
@@ -203,12 +215,14 @@ export default function NodeDetail({ node, edges, repoId, repoOwner, repoName, r
           )}
         </div>
         <button
+          type="button"
+          aria-label={`Close details for ${node.path}`}
           onClick={onClose}
           style={{
             background: "none",
             border: "none",
             cursor: "pointer",
-            color: "var(--subtle)",
+            color: "var(--muted)",
             fontSize: 18,
             lineHeight: 1,
             padding: 2,
@@ -221,6 +235,8 @@ export default function NodeDetail({ node, edges, repoId, repoOwner, repoName, r
 
       {/* Tabs */}
       <div
+        role="tablist"
+        aria-label={`${filename} details`}
         style={{
           display: "flex",
           borderBottom: "1px solid var(--border-soft)",
@@ -231,7 +247,13 @@ export default function NodeDetail({ node, edges, repoId, repoOwner, repoName, r
         {["info", "content"].map((t) => (
           <button
             key={t}
+            id={`file-detail-tab-${t}`}
+            type="button"
+            role="tab"
+            aria-selected={tab === t}
+            tabIndex={tab === t ? 0 : -1}
             onClick={() => handleTabChange(t)}
+            onKeyDown={(event) => handleTabKeyDown(event, t)}
             style={{
               background: "none",
               border: "none",
@@ -239,7 +261,7 @@ export default function NodeDetail({ node, edges, repoId, repoOwner, repoName, r
               padding: "8px 10px",
               fontFamily: "'DM Sans', sans-serif",
               fontSize: 12,
-              color: tab === t ? "var(--fg)" : "var(--subtle)",
+              color: tab === t ? "var(--fg)" : "var(--muted)",
               cursor: "pointer",
               fontWeight: tab === t ? 500 : 400,
               textTransform: "capitalize",
@@ -253,7 +275,7 @@ export default function NodeDetail({ node, edges, repoId, repoOwner, repoName, r
 
       {/* Tab: Info */}
       {tab === "info" && (
-        <div style={{ flex: 1, overflowY: "auto" }}>
+        <div id="file-detail-panel-info" role="tabpanel" aria-labelledby="file-detail-tab-info" tabIndex={0} style={{ flex: 1, overflowY: "auto" }}>
           <div style={{ padding: "12px 14px", borderBottom: "1px solid var(--border-soft)" }}>
             <MetaGrid
               items={[
@@ -270,10 +292,12 @@ export default function NodeDetail({ node, edges, repoId, repoOwner, repoName, r
           <div style={{ padding: "12px 14px" }}>
             {loadingAnalysis && (
               <p
+                role="status"
+                aria-live="polite"
                 style={{
                   fontFamily: "'DM Sans', sans-serif",
                   fontSize: 12,
-                  color: "var(--subtle)",
+                  color: "var(--muted)",
                   margin: 0,
                 }}
               >
@@ -282,6 +306,7 @@ export default function NodeDetail({ node, edges, repoId, repoOwner, repoName, r
             )}
             {analysisError && (
               <p
+                role="alert"
                 style={{
                   fontFamily: "'DM Sans', sans-serif",
                   fontSize: 12,
@@ -337,6 +362,7 @@ export default function NodeDetail({ node, edges, repoId, repoOwner, repoName, r
                           {effectiveAnalysis.ai_summary_detail}
                         </p>
                         <button
+                          type="button"
                           onClick={() => setShowSummaryDetail((value) => !value)}
                           style={{
                             marginTop: 6,
@@ -359,6 +385,7 @@ export default function NodeDetail({ node, edges, repoId, repoOwner, repoName, r
             )}
             {!effectiveAnalysis && !loadingAnalysis && !analysisError && (
               <button
+                type="button"
                 onClick={fetchAnalysis}
                 style={{
                   background: "var(--selected-bg)",
@@ -382,15 +409,17 @@ export default function NodeDetail({ node, edges, repoId, repoOwner, repoName, r
 
       {/* Tab: Source */}
       {tab === "content" && (
-        <div style={{ flex: 1, overflow: "auto", background: "var(--source-bg)" }}>
+        <div id="file-detail-panel-content" role="tabpanel" aria-labelledby="file-detail-tab-content" tabIndex={0} style={{ flex: 1, overflow: "auto", background: "var(--source-bg)" }}>
           {loadingContent ? (
             <div
+              role="status"
+              aria-live="polite"
               style={{
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
                 height: "100%",
-                color: "var(--subtle)",
+                color: "var(--muted)",
                 fontFamily: "'DM Sans', sans-serif",
                 fontSize: 12,
               }}
@@ -399,6 +428,7 @@ export default function NodeDetail({ node, edges, repoId, repoOwner, repoName, r
             </div>
           ) : (
             <pre
+              role={content === "// Could not load file content." ? "alert" : undefined}
               style={{
                 margin: 0,
                 padding: "12px 14px",

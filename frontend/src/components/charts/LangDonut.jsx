@@ -66,7 +66,7 @@ export default function LangDonut({ nodes }) {
           y={CY + 10}
           textAnchor="middle"
           dominantBaseline="middle"
-          style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 10, fill: "var(--subtle)" }}
+          style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 10, fill: "var(--muted)" }}
         >
           files
         </text>
@@ -99,7 +99,7 @@ export default function LangDonut({ nodes }) {
               style={{
                 fontFamily: "'DM Mono', monospace",
                 fontSize: 11,
-                color: "var(--subtle)",
+                color: "var(--muted)",
                 minWidth: 30,
                 textAlign: "right",
               }}

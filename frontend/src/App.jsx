@@ -104,6 +104,7 @@ function HomePage({ onAnalyze, onOpenRepo, loading, externalError, onClearError,
               value={url}
               onChange={(e) => setUrl(e.target.value)}
               placeholder="https://github.com/owner/repo"
+              aria-label="GitHub repository URL"
               disabled={loading}
               style={{ flex: 1, border: "none", outline: "none", padding: "14px 16px", fontFamily: "'DM Mono', monospace", fontSize: 13, color: "var(--fg)", background: "transparent", minWidth: 0 }}
             />
@@ -115,12 +116,12 @@ function HomePage({ onAnalyze, onOpenRepo, loading, externalError, onClearError,
               {loading ? "Analyzing…" : "Visualize →"}
             </button>
           </div>
-          {errorMessage && <p style={{ margin: "8px 0 0", fontSize: 13, color: "var(--status-error)", fontFamily: "'DM Sans', sans-serif" }}>{errorMessage}</p>}
+          {errorMessage && <p role="alert" style={{ margin: "8px 0 0", fontSize: 13, color: "var(--status-error)", fontFamily: "'DM Sans', sans-serif" }}>{errorMessage}</p>}
         </form>
 
         <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 24, flexWrap: "wrap" }}>
           {['Python', 'JavaScript', 'TypeScript', 'HTML/CSS'].map((l) => (
-            <span key={l} style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 12, color: "var(--subtle)", display: "flex", alignItems: "center", gap: 5 }}>
+            <span key={l} style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 12, color: "var(--muted)", display: "flex", alignItems: "center", gap: 5 }}>
               <span style={{ width: 6, height: 6, borderRadius: "50%", background: getLangColor(l.toLowerCase().split("/")[0]), display: "inline-block" }} />
               {l}
             </span>
@@ -201,7 +202,7 @@ function LoadingPage({ repoName, stage }) {
               <circle cx="24" cy="24" r="20" fill="none" stroke="var(--fg)" strokeWidth="3" strokeDasharray="30 96" strokeLinecap="round" />
             </svg>
           </div>
-          <p style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, color: "var(--subtle)", letterSpacing: "0.08em", margin: "0 0 0.5rem" }}>ANALYZING</p>
+          <p role="status" aria-live="polite" style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, color: "var(--muted)", letterSpacing: "0.08em", margin: "0 0 0.5rem" }}>Analyzing {repoName || "repository"}</p>
           <h2 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: 22, fontWeight: 400, color: "var(--fg)", margin: "0 0 2rem" }}>
             {repoName || "repository"}{"...".slice(0, dots + 1)}
           </h2>
@@ -215,7 +216,7 @@ function LoadingPage({ repoName, stage }) {
                   : <div style={{ width: 6, height: 6, borderRadius: "50%", background: s.active ? "var(--surface)" : "var(--subtlest)" }} />
                 }
               </div>
-              <span style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 14, color: s.done || s.active ? "var(--fg)" : "var(--subtle)", transition: "color 0.3s" }}>{s.label}</span>
+              <span role={s.active ? "status" : undefined} aria-live={s.active ? "polite" : undefined} style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 14, color: s.done || s.active ? "var(--fg)" : "var(--muted)", transition: "color 0.3s" }}>{s.label}</span>
             </div>
           ))}
         </div>
@@ -562,7 +563,7 @@ export default function App() {
           }
         }
         body { background: var(--bg); color: var(--fg); }
-        button:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
+        button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, [role="tabpanel"]:focus-visible { outline: 2px solid var(--status-link); outline-offset: 2px; }
         input:focus { border-color: var(--fg) !important; }
         ::-webkit-scrollbar-thumb { background: var(--border); }
         .dashboard-root { min-width: 0; }

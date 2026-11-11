@@ -51,7 +51,7 @@ export default function ConnectionsChart({ nodes, edges }) {
           return (
             <g key={i}>
               <line x1={PAD_L} x2={W - PAD_R} y1={gy} y2={gy} stroke="var(--chart-grid)" strokeWidth={1} />
-              <text x={PAD_L - 6} y={gy + 3} textAnchor="end" style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, fill: "var(--chart-label)" }}>
+              <text x={PAD_L - 6} y={gy + 3} textAnchor="end" style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, fill: "var(--muted)" }}>
                 {val}
               </text>
             </g>
@@ -74,14 +74,14 @@ export default function ConnectionsChart({ nodes, edges }) {
               x={p.x}
               y={H - 4}
               textAnchor="middle"
-              style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, fill: "var(--subtle)" }}
+              style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, fill: "var(--muted)" }}
             >
               {rangeStart}-{rangeEnd}
             </text>
           );
         })}
       </svg>
-      <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 10, color: "var(--subtle)", marginTop: 6, textAlign: "center" }}>
+      <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 10, color: "var(--muted)", marginTop: 6, textAlign: "center" }}>
         files per connection-count range
       </p>
     </div>

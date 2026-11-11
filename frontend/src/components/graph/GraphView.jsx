@@ -106,6 +106,7 @@ export default function GraphView({ nodes, edges, selectedNode, onSelectNode }) 
           <label style={{ alignSelf: "flex-start", display: "flex", alignItems: "center", gap: 7, padding: "6px 9px", border: "1px solid var(--border)", borderRadius: 7, background: "var(--surface)", color: "var(--fg-dim)", fontFamily: "'DM Sans', sans-serif", fontSize: 12 }}>
             <input
               type="checkbox"
+              aria-label="Show selected file and direct neighbors only"
               checked={neighborhoodOnly}
               onChange={(event) => setNeighborhoodOnly(event.target.checked)}
             />
@@ -116,6 +117,8 @@ export default function GraphView({ nodes, edges, selectedNode, onSelectNode }) 
       <canvas
         ref={canvasRef}
         id="dependency-graph-canvas"
+        role="img"
+        aria-label={`Dependency graph: ${nodes.length} files; ${edges.length} links`}
         style={{ width: "100%", height: "100%", cursor: "grab", display: "block", touchAction: "none" }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -144,7 +147,7 @@ export default function GraphView({ nodes, edges, selectedNode, onSelectNode }) 
           style={{
             fontFamily: "'DM Sans', sans-serif",
             fontSize: 10,
-            color: "var(--subtle)",
+            color: "var(--muted)",
             margin: 0,
             letterSpacing: "0.06em",
           }}
@@ -191,7 +194,7 @@ export default function GraphView({ nodes, edges, selectedNode, onSelectNode }) 
           bottom: 14,
           fontFamily: "'DM Sans', sans-serif",
           fontSize: 11,
-          color: "var(--subtle)",
+          color: "var(--muted)",
           margin: 0,
         }}
       >
@@ -235,12 +238,14 @@ export default function GraphView({ nodes, edges, selectedNode, onSelectNode }) 
             {selectedNode.path.split("/").pop()}
           </span>
           <button
+            type="button"
+            aria-label={`Clear selection for ${selectedNode.path}`}
             onClick={() => onSelectNode(null)}
             style={{
               background: "none",
               border: "none",
               cursor: "pointer",
-              color: "var(--subtle)",
+              color: "var(--muted)",
               fontSize: 14,
               padding: "0 0 0 4px",
               lineHeight: 1,

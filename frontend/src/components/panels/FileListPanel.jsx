@@ -54,6 +54,7 @@ export default function FileListPanel({ nodes, edges, onSelectNode, selectedNode
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Filter files…"
+          aria-label="Filter files by path"
           style={{
             flex: 1,
             border: "1px solid var(--border)",
@@ -70,6 +71,7 @@ export default function FileListPanel({ nodes, edges, onSelectNode, selectedNode
         <select
           value={sortBy}
           onChange={(e) => setSortBy(e.target.value)}
+          aria-label="Sort files"
           style={{
             border: "1px solid var(--border)",
             borderRadius: 6,
@@ -101,6 +103,8 @@ export default function FileListPanel({ nodes, edges, onSelectNode, selectedNode
         {langs.map((l) => (
           <button
             key={l}
+            type="button"
+            aria-pressed={langFilter === l}
             onClick={() => setLangFilter(l)}
             style={{
               background: langFilter === l ? "var(--fg)" : "transparent",
@@ -143,7 +147,7 @@ export default function FileListPanel({ nodes, edges, onSelectNode, selectedNode
           style={{
             fontFamily: "'DM Mono', monospace",
             fontSize: 10,
-            color: "var(--subtle)",
+            color: "var(--muted)",
           }}
         >
           {filtered.length} file{filtered.length !== 1 ? "s" : ""}
@@ -161,12 +165,18 @@ export default function FileListPanel({ nodes, edges, onSelectNode, selectedNode
           const isSelected = selectedNode?.id === n.id;
 
           return (
-            <div
+            <button
               key={n.id}
+              type="button"
+              aria-label={`Select ${n.path}`}
+              aria-pressed={isSelected}
               onClick={() => onSelectNode(n)}
               style={{
+                width: "100%",
                 padding: "8px 14px",
                 borderBottom: "1px solid var(--border-soft)",
+                borderTop: 0,
+                borderRight: 0,
                 cursor: "pointer",
                 display: "flex",
                 alignItems: "center",
@@ -174,12 +184,13 @@ export default function FileListPanel({ nodes, edges, onSelectNode, selectedNode
                 background: isSelected ? "var(--selected-bg)" : "transparent",
                 borderLeft: isSelected ? "2px solid var(--fg)" : "2px solid transparent",
                 transition: "background 0.12s",
+                textAlign: "left",
               }}
               onMouseEnter={(e) => {
                 if (!isSelected) e.currentTarget.style.background = "var(--selected-hover)";
               }}
               onMouseLeave={(e) => {
-                if (!isSelected) e.currentTarget.style.background = "transparent";
+                e.currentTarget.style.background = isSelected ? "var(--selected-bg)" : "transparent";
               }}
             >
               <span
@@ -210,7 +221,7 @@ export default function FileListPanel({ nodes, edges, onSelectNode, selectedNode
                     style={{
                       fontFamily: "'DM Mono', monospace",
                       fontSize: 10,
-                      color: "var(--subtlest)",
+                      color: "var(--muted)",
                       margin: 0,
                       overflow: "hidden",
                       textOverflow: "ellipsis",
@@ -227,7 +238,7 @@ export default function FileListPanel({ nodes, edges, onSelectNode, selectedNode
                     style={{
                       fontFamily: "'DM Mono', monospace",
                       fontSize: 10,
-                      color: "var(--subtlest)",
+                      color: "var(--muted)",
                     }}
                   >
                     {n.line_count}L
@@ -238,7 +249,7 @@ export default function FileListPanel({ nodes, edges, onSelectNode, selectedNode
                     style={{
                       fontFamily: "'DM Mono', monospace",
                       fontSize: 10,
-                      color: "var(--subtle)",
+                      color: "var(--muted)",
                       background: "var(--surface-soft)",
                       borderRadius: 4,
                       padding: "1px 5px",
@@ -248,7 +259,7 @@ export default function FileListPanel({ nodes, edges, onSelectNode, selectedNode
                   </span>
                 )}
               </div>
-            </div>
+            </button>
           );
         })}
         {filtered.length === 0 && (
@@ -256,7 +267,7 @@ export default function FileListPanel({ nodes, edges, onSelectNode, selectedNode
             style={{
               fontFamily: "'DM Sans', sans-serif",
               fontSize: 12,
-              color: "var(--subtle)",
+              color: "var(--muted)",
               textAlign: "center",
               margin: "24px 0",
             }}

@@ -24,7 +24,7 @@ export default function FileRoles({ nodes }) {
 
   if (!entries.length) {
     return (
-      <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 12, color: "var(--subtle)", margin: 0 }}>
+      <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 12, color: "var(--muted)", margin: 0 }}>
         Automatic file analysis is pending or unavailable
       </p>
     );
@@ -77,7 +77,7 @@ export default function FileRoles({ nodes }) {
               style={{
                 fontFamily: "'DM Mono', monospace",
                 fontSize: 10,
-                color: "var(--subtle)",
+                color: "var(--muted)",
                 width: 22,
                 textAlign: "right",
                 flexShrink: 0,

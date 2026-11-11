@@ -64,7 +64,7 @@ function StatCard({ label, value, sub, icon, tint }) {
             style={{
               fontFamily: "'DM Sans', sans-serif",
               fontSize: 11,
-              color: "var(--subtle)",
+              color: "var(--muted)",
             }}
           >
             {sub}
@@ -118,7 +118,7 @@ const ICONS = {
 function MetricPathList({ title, items, onSelectPath, formatItem = (item) => item.path }) {
   return (
     <div style={{ minWidth: 0 }}>
-      <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 11, fontWeight: 600, color: "var(--subtle)", letterSpacing: "0.06em", textTransform: "uppercase", margin: "0 0 8px" }}>
+      <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 11, fontWeight: 600, color: "var(--muted)", letterSpacing: "0.06em", textTransform: "uppercase", margin: "0 0 8px" }}>
         {title}
       </p>
       {items.length > 0 ? items.map((item) => {
@@ -136,7 +136,7 @@ function MetricPathList({ title, items, onSelectPath, formatItem = (item) => ite
           </button>
         );
       }) : (
-        <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 12, color: "var(--subtle)", margin: 0 }}>None</p>
+        <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 12, color: "var(--muted)", margin: 0 }}>None</p>
       )}
     </div>
   );
@@ -145,7 +145,7 @@ function MetricPathList({ title, items, onSelectPath, formatItem = (item) => ite
 function ArchitectureMetrics({ metrics, onSelectPath }) {
   return (
     <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, padding: "18px 20px", boxShadow: "var(--shadow-sm)" }}>
-      <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 11, fontWeight: 600, color: "var(--subtle)", letterSpacing: "0.06em", textTransform: "uppercase", margin: "0 0 14px" }}>
+      <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 11, fontWeight: 600, color: "var(--muted)", letterSpacing: "0.06em", textTransform: "uppercase", margin: "0 0 14px" }}>
         Architecture metrics
       </p>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 18 }}>
@@ -182,7 +182,7 @@ function ChartCard({ title, children, minHeight = 260 }) {
           fontFamily: "'DM Sans', sans-serif",
           fontSize: 11,
           fontWeight: 600,
-          color: "var(--subtle)",
+          color: "var(--muted)",
           margin: 0,
           letterSpacing: "0.06em",
           textTransform: "uppercase",
@@ -219,6 +219,7 @@ export default function DashboardPage({ data, onReset }) {
   const [activeTab, setActiveTab]     = useState("overview");
   const [selectedNode, setSelectedNode] = useState(null);
   const [exportToast, setExportToast] = useState("");
+  const [exportToastError, setExportToastError] = useState(false);
   const exportToastTimeout = useRef(null);
   const [refreshedChartData, setRefreshedChartData] = useState(null);
   const chartNodes = refreshedChartData?.repoId === data.id
@@ -256,15 +257,30 @@ export default function DashboardPage({ data, onReset }) {
     setSelectedNode(node);
     setActiveTab("graph");
   };
+  const handleTabKeyDown = (event, currentTab) => {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const currentIndex = TABS.findIndex((tab) => tab.id === currentTab);
+    const nextIndex = event.key === "Home"
+      ? 0
+      : event.key === "End"
+        ? TABS.length - 1
+        : (currentIndex + (event.key === "ArrowRight" ? 1 : TABS.length - 1)) % TABS.length;
+    const nextTab = TABS[nextIndex].id;
+    setActiveTab(nextTab);
+    document.getElementById(`dashboard-tab-${nextTab}`)?.focus();
+  };
   const exportFilename = `${data.owner}-${data.repo_name}`;
   const notifyExport = async (action, successMessage) => {
     window.clearTimeout(exportToastTimeout.current);
     try {
       await action();
       setExportToast(successMessage);
+      setExportToastError(false);
     } catch (error) {
       console.error("Graph export failed:", error);
       setExportToast(error instanceof Error ? error.message : "Export failed.");
+      setExportToastError(true);
     }
     exportToastTimeout.current = window.setTimeout(() => setExportToast(""), 3000);
   };
@@ -289,6 +305,8 @@ export default function DashboardPage({ data, onReset }) {
       >
         <div className="dashboard-header-brand" style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <button
+            type="button"
+            aria-label="Return to repository search"
             onClick={onReset}
             style={{
               background: "none",
@@ -309,7 +327,7 @@ export default function DashboardPage({ data, onReset }) {
             New
           </button>
           <span style={{ color: "var(--border)" }}>|</span>
-          <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, color: "var(--subtle)" }}>
+          <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, color: "var(--muted)" }}>
             {data.owner}/{data.repo_name}
           </span>
           {data.status === "ready" && (
@@ -328,10 +346,16 @@ export default function DashboardPage({ data, onReset }) {
           )}
         </div>
 
-        <div className="dashboard-tabs" style={{ display: "flex", gap: 2 }}>
+        <div className="dashboard-tabs" role="tablist" aria-label="Repository dashboard" style={{ display: "flex", gap: 2 }}>
           {TABS.map((t) => (
             <button
               key={t.id}
+              id={`dashboard-tab-${t.id}`}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === t.id}
+              tabIndex={activeTab === t.id ? 0 : -1}
+              onKeyDown={(event) => handleTabKeyDown(event, t.id)}
               onClick={() => setActiveTab(t.id)}
               style={{
                 background: activeTab === t.id ? "var(--bg)" : "transparent",
@@ -416,7 +440,7 @@ export default function DashboardPage({ data, onReset }) {
 
       {/* ── Overview ── */}
       {activeTab === "overview" && (
-        <div className="dashboard-overview" style={{ flex: 1, overflowY: "auto", padding: "1.25rem" }}>
+        <div id="dashboard-panel-overview" className="dashboard-overview" role="tabpanel" aria-labelledby="dashboard-tab-overview" tabIndex={0} style={{ flex: 1, overflowY: "auto", padding: "1.25rem" }}>
           {/* Stat row */}
           <div
             style={{
@@ -511,7 +535,7 @@ export default function DashboardPage({ data, onReset }) {
 
       {/* ── Graph ── */}
       {activeTab === "graph" && (
-        <div className="dashboard-graph-layout" style={{ flex: 1, display: "flex", overflow: "hidden", position: "relative" }}>
+        <div id="dashboard-panel-graph" className="dashboard-graph-layout" role="tabpanel" aria-labelledby="dashboard-tab-graph" tabIndex={0} style={{ flex: 1, display: "flex", overflow: "hidden", position: "relative" }}>
           <GraphView
             nodes={data.nodes}
             edges={data.edges}
@@ -524,7 +548,7 @@ export default function DashboardPage({ data, onReset }) {
             <button type="button" onClick={() => notifyExport(() => copyMermaidGraph(data.nodes, data.edges), "Mermaid copied to clipboard.")} style={exportButtonStyle}>Copy Mermaid</button>
           </div>
           {exportToast && (
-            <p className={`graph-export-toast${selectedNode ? " has-selection" : ""}`} role="status" style={{ position: "absolute", zIndex: 6, top: 52, right: selectedNode ? 332 : 12, margin: 0, padding: "7px 10px", borderRadius: 6, background: "var(--fg)", color: "var(--surface)", fontFamily: "'DM Sans', sans-serif", fontSize: 12 }}>
+            <p className={`graph-export-toast${selectedNode ? " has-selection" : ""}`} role={exportToastError ? "alert" : "status"} aria-live={exportToastError ? "assertive" : "polite"} style={{ position: "absolute", zIndex: 6, top: 52, right: selectedNode ? 332 : 12, margin: 0, padding: "7px 10px", border: "1px solid var(--border)", borderRadius: 6, background: "var(--surface)", color: "var(--fg)", boxShadow: "var(--shadow-md)", fontFamily: "'DM Sans', sans-serif", fontSize: 12 }}>
               {exportToast}
             </p>
           )}
@@ -543,7 +567,7 @@ export default function DashboardPage({ data, onReset }) {
 
       {/* ── Files ── */}
       {activeTab === "files" && (
-        <div className="dashboard-files-layout" style={{ flex: 1, display: "flex", overflow: "hidden" }}>
+        <div id="dashboard-panel-files" className="dashboard-files-layout" role="tabpanel" aria-labelledby="dashboard-tab-files" tabIndex={0} style={{ flex: 1, display: "flex", overflow: "hidden" }}>
           <FileListPanel
             nodes={data.nodes}
             edges={data.edges}

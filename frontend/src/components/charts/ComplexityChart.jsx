@@ -57,10 +57,10 @@ export default function ComplexityChart({ nodes }) {
           gap: 4,
         }}
       >
-        <span style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 12, color: "var(--subtle)" }}>
+        <span style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 12, color: "var(--muted)" }}>
           Automatic file analysis is pending or unavailable
         </span>
-        <span style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 11, color: "var(--subtlest)" }}>
+        <span style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 11, color: "var(--muted)" }}>
           Results appear once AI analysis finishes
         </span>
       </div>
@@ -101,7 +101,7 @@ export default function ComplexityChart({ nodes }) {
           y={CY + 12}
           textAnchor="middle"
           dominantBaseline="middle"
-          style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 10, fill: "var(--subtle)" }}
+          style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 10, fill: "var(--muted)" }}
         >
           files
         </text>

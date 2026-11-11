@@ -37,7 +37,7 @@ export default function TopFiles({ nodes, edges }) {
               style={{
                 fontFamily: "'DM Mono', monospace",
                 fontSize: 10,
-                color: "var(--subtlest)",
+                color: "var(--muted)",
                 width: 14,
                 textAlign: "right",
                 flexShrink: 0,
@@ -92,7 +92,7 @@ export default function TopFiles({ nodes, edges }) {
               style={{
                 fontFamily: "'DM Mono', monospace",
                 fontSize: 10,
-                color: "var(--subtle)",
+                color: "var(--muted)",
                 width: 20,
                 textAlign: "right",
                 flexShrink: 0,
