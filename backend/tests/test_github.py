@@ -98,6 +98,26 @@ def test_get_file_content_returns_raw_text(monkeypatch):
     assert service.get_file_content("octocat", "hello-world", "main", "src/app.py") == "print('hello')"
 
 
+def test_get_typescript_config_falls_back_to_jsconfig_when_tsconfig_is_missing(monkeypatch):
+    service = GithubService()
+    calls = []
+
+    def get_file_content(owner, repo, ref, path):
+        calls.append(path)
+        if path == "tsconfig.json":
+            response = requests.Response()
+            response.status_code = 404
+            raise requests.HTTPError("missing", response=response)
+        return '{"compilerOptions":{"baseUrl":"src"}}'
+
+    monkeypatch.setattr(service, "get_file_content", get_file_content)
+
+    assert service.get_typescript_config("octocat", "hello-world", "main") == (
+        '{"compilerOptions":{"baseUrl":"src"}}'
+    )
+    assert calls == ["tsconfig.json", "jsconfig.json"]
+
+
 def test_fetch_files_concurrent_returns_contents_for_all_paths(monkeypatch):
     service = GithubService()
     calls: list[tuple[str, str]] = []

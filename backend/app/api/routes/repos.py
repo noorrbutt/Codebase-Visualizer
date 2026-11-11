@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import re
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path, PurePosixPath
@@ -183,7 +185,178 @@ def _normalize_import(import_value: str) -> str:
     return import_normalized
 
 
-def _build_edges(parsed: dict[str, list[str]]) -> list[FileEdge]:
+def _strip_jsonc_comments(content: str) -> str:
+    output: list[str] = []
+    index = 0
+    in_string = False
+    escaped = False
+
+    while index < len(content):
+        char = content[index]
+        next_char = content[index + 1] if index + 1 < len(content) else ""
+        if in_string:
+            output.append(char)
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            index += 1
+        elif char == '"':
+            in_string = True
+            output.append(char)
+            index += 1
+        elif char == "/" and next_char == "/":
+            index += 2
+            while index < len(content) and content[index] not in "\r\n":
+                index += 1
+        elif char == "/" and next_char == "*":
+            index += 2
+            while index + 1 < len(content) and content[index:index + 2] != "*/":
+                index += 1
+            index = min(index + 2, len(content))
+            output.append(" ")
+        else:
+            output.append(char)
+            index += 1
+
+    uncommented = "".join(output)
+    output = []
+    index = 0
+    in_string = False
+    escaped = False
+    while index < len(uncommented):
+        char = uncommented[index]
+        if in_string:
+            output.append(char)
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            index += 1
+        elif char == '"':
+            in_string = True
+            output.append(char)
+            index += 1
+        elif char == ",":
+            next_index = index + 1
+            while next_index < len(uncommented) and uncommented[next_index].isspace():
+                next_index += 1
+            if next_index >= len(uncommented) or uncommented[next_index] not in "}]":
+                output.append(char)
+            index += 1
+        else:
+            output.append(char)
+            index += 1
+    return "".join(output)
+
+
+def _parse_typescript_aliases(config_text: str | None) -> dict[str, list[str]]:
+    aliases: dict[str, list[str]] = {}
+    if not config_text:
+        return aliases
+
+    try:
+        config = json.loads(_strip_jsonc_comments(config_text))
+    except (json.JSONDecodeError, TypeError):
+        logger.warning("Ignoring invalid tsconfig/jsconfig JSON")
+        return aliases
+    if not isinstance(config, dict):
+        return aliases
+
+    compiler_options = config.get("compilerOptions")
+    if not isinstance(compiler_options, dict):
+        return aliases
+    base_url_value = compiler_options.get("baseUrl")
+    if not isinstance(base_url_value, str):
+        base_url = ""
+    else:
+        base_url = base_url_value.replace("\\", "/").strip("/")
+        if base_url.startswith("./"):
+            base_url = base_url[2:]
+        if base_url == ".":
+            base_url = ""
+
+    paths = compiler_options.get("paths")
+    if isinstance(paths, dict):
+        for pattern, targets in paths.items():
+            if not isinstance(pattern, str) or not isinstance(targets, list):
+                continue
+            resolved_targets = []
+            for target in targets:
+                if not isinstance(target, str):
+                    continue
+                normalized_target = target.replace("\\", "/")
+                if normalized_target.startswith("./"):
+                    normalized_target = normalized_target[2:]
+                resolved_targets.append(
+                    "/".join(part for part in (base_url, normalized_target) if part)
+                )
+            if resolved_targets:
+                aliases[pattern] = resolved_targets
+
+    if "baseUrl" in compiler_options:
+        aliases.setdefault("*", [f"{base_url}/*" if base_url else "*"])
+    return aliases
+
+
+def _resolve_module_candidate(candidate: str, module_map: dict[str, str]) -> str | None:
+    normalized = PurePosixPath(candidate.replace("\\", "/"))
+    supported_extensions = {".py", ".js", ".jsx", ".ts", ".tsx", ".html", ".css", ".md"}
+    has_supported_extension = normalized.suffix.lower() in supported_extensions
+    key_path = normalized.with_suffix("") if has_supported_extension else normalized
+    key = ".".join(key_path.parts)
+    if key in module_map:
+        return module_map[key]
+
+    if not has_supported_extension:
+        for extension in [".py", ".js", ".jsx", ".ts", ".tsx", ".html", ".css", ".md"]:
+            candidate_key = ".".join((*normalized.parts[:-1], normalized.name + extension))
+            candidate_key = ".".join(PurePosixPath(candidate_key).with_suffix("").parts)
+            if candidate_key in module_map:
+                return module_map[candidate_key]
+
+    if normalized.name == "index":
+        parent_key = ".".join(normalized.parent.parts)
+        if parent_key in module_map:
+            return module_map[parent_key]
+
+    return None
+
+
+def _resolve_alias_import(
+    import_value: str,
+    aliases: dict[str, list[str]],
+    module_map: dict[str, str],
+) -> str | None:
+    for pattern in sorted(aliases, key=lambda value: (-len(value.replace("*", "")), value)):
+        if "*" in pattern:
+            prefix, suffix = pattern.split("*", 1)
+            if not import_value.startswith(prefix) or not import_value.endswith(suffix):
+                continue
+            wildcard = import_value[len(prefix):]
+            if suffix:
+                wildcard = wildcard[:-len(suffix)]
+        elif import_value == pattern:
+            prefix = pattern
+            wildcard = ""
+        else:
+            continue
+
+        for target in aliases[pattern]:
+            candidate = target.replace("*", wildcard, 1)
+            resolved = _resolve_module_candidate(candidate, module_map)
+            if resolved:
+                return resolved
+    return None
+
+
+def _build_edges(
+    parsed: dict[str, list[str]], aliases: dict[str, list[str]] | None = None
+) -> list[FileEdge]:
     module_map: dict[str, str] = {}
     python_module_map: dict[str, str] = {}
 
@@ -194,6 +367,9 @@ def _build_edges(parsed: dict[str, list[str]]) -> list[FileEdge]:
             python_module_map[key] = path
 
     edges: list[FileEdge] = []
+    alias_map = dict(aliases or {})
+    if any(path.startswith("src/") for path in parsed):
+        alias_map.setdefault("@/*", ["src/*"])
 
     for source, imports in parsed.items():
         for raw_import in imports:
@@ -207,6 +383,16 @@ def _build_edges(parsed: dict[str, list[str]]) -> list[FileEdge]:
                         _normalize_import(raw_import), python_module_map
                     )
                 if target_path and target_path != source:
+                    edges.append(FileEdge(source=source, target=target_path))
+                continue
+
+            target_path = (
+                None
+                if raw_import.startswith((".", ".."))
+                else _resolve_alias_import(raw_import, alias_map, module_map)
+            )
+            if target_path:
+                if target_path != source:
                     edges.append(FileEdge(source=source, target=target_path))
                 continue
 
@@ -685,7 +871,11 @@ async def _build_repo_analysis(
                 )
             )
 
-        edges = _build_edges(parsed_results)
+        typescript_config = await asyncio.to_thread(
+            github_service.get_typescript_config, owner, repo_name, commit_sha
+        )
+        aliases = _parse_typescript_aliases(typescript_config)
+        edges = _build_edges(parsed_results, aliases)
         in_degree = dict.fromkeys(parsed_results, 0)
         for edge in edges:
             if edge.target in in_degree:

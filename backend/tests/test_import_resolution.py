@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from app.api.routes.repos import (
     _build_edges,
+    _parse_typescript_aliases,
     _resolve_python_absolute_import,
     _resolve_python_relative_import,
     _resolve_relative_import,
@@ -31,6 +32,54 @@ def test_build_edges_resolves_extension_fallback_and_index_files():
 
     assert any(edge.source == "src/App.jsx" and edge.target == "src/components/Header.jsx" for edge in edges)
     assert any(edge.source == "src/App.jsx" and edge.target == "src/utils/index.ts" for edge in edges)
+
+
+def test_build_edges_resolves_at_alias_to_src_directory():
+    parsed = {
+        "src/App.jsx": ["@/utils/api"],
+        "src/utils/api.ts": [],
+    }
+
+    edges = _build_edges(parsed)
+
+    assert any(edge.source == "src/App.jsx" and edge.target == "src/utils/api.ts" for edge in edges)
+
+
+def test_build_edges_resolves_bare_imports_using_base_url():
+    aliases = _parse_typescript_aliases(
+        '{"compilerOptions":{"baseUrl":"src"}}'
+    )
+    parsed = {
+        "src/App.jsx": ["utils/api"],
+        "src/utils/api.ts": [],
+    }
+
+    edges = _build_edges(parsed, aliases)
+
+    assert aliases == {"*": ["src/*"]}
+    assert any(edge.source == "src/App.jsx" and edge.target == "src/utils/api.ts" for edge in edges)
+
+
+def test_invalid_typescript_config_is_ignored():
+    assert _parse_typescript_aliases('{"compilerOptions": {,}}') == {}
+
+
+def test_typescript_config_paths_resolve_with_base_url_and_jsonc():
+    aliases = _parse_typescript_aliases(
+        """
+        {
+          // Root aliases
+          "compilerOptions": {
+            "baseUrl": ".",
+            "paths": {
+              "@/*": ["src/*",],
+            },
+          },
+        }
+        """
+    )
+
+    assert aliases == {"@/*": ["src/*"], "*": ["*"]}
 
 
 def test_python_absolute_imports_match_source_root_suffixes():

@@ -59,6 +59,7 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(main_module, "create_tables", lambda: Base.metadata.create_all(bind=engine))
     monkeypatch.setattr(main_module.settings, "API_KEY", "test-api-key")
     monkeypatch.setattr(repos_module.settings, "API_KEY", "test-api-key")
+    monkeypatch.setattr(repos_module.github_service, "get_typescript_config", lambda *args: None)
 
     # Coordination (concurrency gate + per-repo mutex) is Redis-backed in
     # production; swap in the same in-memory fake used elsewhere in this
@@ -1121,6 +1122,69 @@ def test_build_repo_summary_uses_readme_manifest_and_top_files(client, monkeypat
     assert captured_summary["readme_excerpt"] == contents["README.md"][:1500]
     assert captured_summary["manifest_excerpt"] is None
     assert captured_summary["top_files"][:2] == ["src/b.py", "src/c.py"]
+
+
+def test_build_repo_analysis_uses_tsconfig_aliases_for_edges(client, monkeypatch):
+    repo_id = _create_auto_analysis_repo()
+    with database_module.SessionLocal() as db:
+        repo = db.get(Repository, repo_id)
+        assert repo is not None
+        repo.status = "parsing"
+        repo.repo_name = "hello-world"
+        repo.github_url = "https://github.com/octocat/hello-world"
+        db.commit()
+
+    contents = {
+        "src/App.jsx": "import api from '@/utils/api';",
+        "src/utils/api.ts": "export default {};",
+    }
+    monkeypatch.setattr(repos_module.settings, "AUTO_ANALYZE_TOP_FILES", 0)
+    monkeypatch.setattr(repos_module.github_service, "get_commit_sha", lambda *args: "a" * 40)
+    monkeypatch.setattr(
+        repos_module.github_service,
+        "get_file_tree",
+        lambda *args: [{"path": path} for path in contents],
+    )
+    monkeypatch.setattr(
+        repos_module.github_service,
+        "fetch_files_concurrent",
+        lambda *args: contents,
+    )
+    monkeypatch.setattr(
+        repos_module.github_service,
+        "get_typescript_config",
+        lambda *args: '{"compilerOptions":{"paths":{"@/*":["src/*"]}}}',
+    )
+    monkeypatch.setattr(
+        repos_module.code_parser,
+        "parse",
+        lambda path, _content: {
+            "imports": ["@/utils/api"] if path == "src/App.jsx" else [],
+            "language": "javascript",
+            "line_count": 1,
+        },
+    )
+    monkeypatch.setattr(
+        repos_module.ai_service,
+        "generate_repo_summary",
+        lambda *args, **kwargs: "summary",
+    )
+
+    asyncio.run(
+        repos_module._build_repo_analysis(
+            repo_id,
+            "octocat",
+            "hello-world",
+            "https://github.com/octocat/hello-world",
+            "main",
+        )
+    )
+
+    with database_module.SessionLocal() as db:
+        edges = db.query(FileEdge).filter(FileEdge.repo_id == repo_id).all()
+    assert [(edge.source, edge.target) for edge in edges] == [
+        ("src/App.jsx", "src/utils/api.ts")
+    ]
 
 
 def _create_auto_analysis_repo():

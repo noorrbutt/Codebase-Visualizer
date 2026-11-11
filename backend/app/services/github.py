@@ -257,6 +257,20 @@ class GithubService:
         response.raise_for_status()
         return response.text
 
+    def get_typescript_config(self, owner: str, repo: str, ref: str) -> str | None:
+        for path in ("tsconfig.json", "jsconfig.json"):
+            try:
+                return self.get_file_content(owner, repo, ref, path)
+            except requests.HTTPError as exc:
+                if exc.response is not None and exc.response.status_code == 404:
+                    continue
+                logger.warning("Failed to fetch {} for {}/{}: {}", path, owner, repo, exc)
+                return None
+            except requests.RequestException as exc:
+                logger.warning("Failed to fetch {} for {}/{}: {}", path, owner, repo, exc)
+                return None
+        return None
+
     def fetch_files_concurrent(self, owner: str, repo: str, ref: str, paths: list[str]) -> dict[str, str]:
         contents: dict[str, str] = {}
         logger.info("Fetching {} files concurrently", len(paths))
