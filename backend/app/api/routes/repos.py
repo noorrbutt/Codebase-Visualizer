@@ -5,6 +5,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path, PurePosixPath
 
+import requests
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -330,6 +331,25 @@ def _analysis_error_message(exc: Exception) -> str:
     return "Analysis failed"
 
 
+def _fetch_manifest_excerpt(owner: str, repo_name: str, ref: str) -> str | None:
+    for path in ("package.json", "pyproject.toml", "requirements.txt"):
+        try:
+            content = github_service.get_file_content(owner, repo_name, ref, path)
+        except requests.HTTPError as exc:
+            if exc.response is not None and exc.response.status_code == 404:
+                continue
+            logger.warning("Could not fetch {} for {}/{}: {}", path, owner, repo_name, exc)
+            return None
+        except requests.RequestException as exc:
+            logger.warning("Could not fetch {} for {}/{}: {}", path, owner, repo_name, exc)
+            return None
+        except Exception:
+            logger.exception("Could not fetch {} for {}/{}", path, owner, repo_name)
+            return None
+        return "\n".join(content.splitlines()[:40])
+    return None
+
+
 def _file_is_analyzed(node: FileNode) -> bool:
     return (
         node.analyzed_at is not None
@@ -601,6 +621,9 @@ async def _build_repo_summary(
     repo_name: str,
     file_paths: list[str],
     client_ip: str | None = None,
+    readme_excerpt: str | None = None,
+    manifest_excerpt: str | None = None,
+    top_files: list[str] | None = None,
 ) -> None:
     try:
         summary = await asyncio.to_thread(
@@ -608,6 +631,9 @@ async def _build_repo_summary(
             repo_name,
             file_paths,
             client_ip=client_ip,
+            readme_excerpt=readme_excerpt,
+            manifest_excerpt=manifest_excerpt,
+            top_files=top_files,
         )
         await asyncio.to_thread(_update_repo_analysis_state, repo_id, "ready", summary)
         logger.info("Repo summary saved for repo {}", repo_id)
@@ -660,6 +686,25 @@ async def _build_repo_analysis(
             )
 
         edges = _build_edges(parsed_results)
+        in_degree = dict.fromkeys(parsed_results, 0)
+        for edge in edges:
+            if edge.target in in_degree:
+                in_degree[edge.target] += 1
+        top_files = sorted(
+            in_degree,
+            key=lambda path: (-in_degree[path], path),
+        )[:5]
+        readme_excerpt = next(
+            (
+                content[:1500]
+                for path, content in contents.items()
+                if "/" not in path and path.lower() == "readme.md"
+            ),
+            None,
+        )
+        manifest_excerpt = await asyncio.to_thread(
+            _fetch_manifest_excerpt, owner, repo_name, commit_sha
+        )
         persisted = await asyncio.to_thread(
             _persist_repo_analysis_files, repo_id, node_records, edges
         )
@@ -673,6 +718,9 @@ async def _build_repo_analysis(
                 repo_name,
                 file_paths,
                 client_ip=client_ip,
+                readme_excerpt=readme_excerpt,
+                manifest_excerpt=manifest_excerpt,
+                top_files=top_files,
             )
             await asyncio.to_thread(
                 _update_repo_analysis_state, repo_id, "ready", summary, True

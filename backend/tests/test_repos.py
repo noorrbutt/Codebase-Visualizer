@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 import pytest
+import requests
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -1016,6 +1017,110 @@ def test_build_repo_analysis_marks_ready_when_ai_summary_fails(client, monkeypat
         assert repo.locked_at is None
         assert repo.worker_id is None
     assert observed_stages == ["fetching", "fetching", "parsing", "summarizing"]
+
+
+def test_fetch_manifest_excerpt_skips_missing_manifests(client, monkeypatch):
+    missing_response = requests.Response()
+    missing_response.status_code = 404
+    missing_error = requests.HTTPError("missing", response=missing_response)
+    calls = []
+
+    def get_file_content(owner, repo_name, ref, path):
+        calls.append(path)
+        if path == "package.json":
+            raise missing_error
+        if path == "pyproject.toml":
+            return "\n".join(f"line {index}" for index in range(45))
+        raise AssertionError(f"Unexpected manifest fetch: {path}")
+
+    monkeypatch.setattr(repos_module.github_service, "get_file_content", get_file_content)
+
+    excerpt = repos_module._fetch_manifest_excerpt("octocat", "hello-world", "main")
+
+    assert calls == ["package.json", "pyproject.toml"]
+    assert excerpt is not None
+    assert len(excerpt.splitlines()) == 40
+    assert excerpt.splitlines()[0] == "line 0"
+    assert excerpt.splitlines()[-1] == "line 39"
+
+
+def test_build_repo_summary_uses_readme_manifest_and_top_files(client, monkeypatch):
+    commit_sha = "0123456789abcdef0123456789abcdef01234567"
+    with database_module.SessionLocal() as db:
+        repo = Repository(
+            owner="octocat",
+            repo_name="hello-world",
+            github_url="https://github.com/octocat/hello-world",
+            default_branch="main",
+            status="parsing",
+        )
+        db.add(repo)
+        db.commit()
+        repo_id = repo.id
+
+    contents = {
+        "README.md": "# Hello World\n" + ("readme " * 300),
+        "src/a.py": "import src.b",
+        "src/b.py": "import src.c",
+        "src/c.py": "print('done')",
+    }
+    captured_summary = {}
+
+    def missing_manifest(*args):
+        response = requests.Response()
+        response.status_code = 404
+        raise requests.HTTPError("missing", response=response)
+
+    monkeypatch.setattr(
+        repos_module.github_service,
+        "get_commit_sha",
+        lambda *args: commit_sha,
+    )
+    monkeypatch.setattr(
+        repos_module.github_service,
+        "get_file_tree",
+        lambda *args: [{"path": path} for path in contents],
+    )
+    monkeypatch.setattr(
+        repos_module.github_service,
+        "fetch_files_concurrent",
+        lambda *args: contents,
+    )
+    monkeypatch.setattr(
+        repos_module.github_service,
+        "get_file_content",
+        missing_manifest,
+    )
+    monkeypatch.setattr(repos_module.code_parser, "parse", lambda path, content: {
+        "imports": ["src.b"] if path.endswith("a.py") else ["src.c"] if path.endswith("b.py") else [],
+        "language": "python",
+        "line_count": 1,
+    })
+    monkeypatch.setattr(repos_module.settings, "AUTO_ANALYZE_TOP_FILES", 0)
+
+    def generate_repo_summary(*args, **kwargs):
+        captured_summary.update(kwargs)
+        return "summary"
+
+    monkeypatch.setattr(
+        repos_module.ai_service,
+        "generate_repo_summary",
+        generate_repo_summary,
+    )
+
+    asyncio.run(
+        repos_module._build_repo_analysis(
+            repo_id,
+            "octocat",
+            "hello-world",
+            "https://github.com/octocat/hello-world",
+            "main",
+        )
+    )
+
+    assert captured_summary["readme_excerpt"] == contents["README.md"][:1500]
+    assert captured_summary["manifest_excerpt"] is None
+    assert captured_summary["top_files"][:2] == ["src/b.py", "src/c.py"]
 
 
 def _create_auto_analysis_repo():

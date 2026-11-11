@@ -131,6 +131,51 @@ def test_analyze_file_uses_safe_defaults_for_unknown_ai_categories():
     }
 
 
+def test_generate_repo_summary_includes_optional_repository_context(monkeypatch):
+    service = AIService()
+    service.ensure_budget_available = lambda client_ip=None: None
+    captured = {}
+
+    class FakeResponse:
+        def __init__(self):
+            message = type(
+                "Message",
+                (),
+                {"content": '{"summary":"A concise repository summary."}'},
+            )()
+            self.choices = [type("Choice", (), {"message": message})()]
+            self.usage = None
+
+    class Completions:
+        @staticmethod
+        def create(*args, **kwargs):
+            captured.update(kwargs)
+            return FakeResponse()
+
+    class Chat:
+        completions = Completions()
+
+    service.client = type("C", (), {"chat": Chat()})()
+
+    summary = service.generate_repo_summary(
+        "owner/project",
+        ["src/main.py", "src/util.py"],
+        readme_excerpt="# Project README",
+        manifest_excerpt="[project]\nname = 'project'",
+        top_files=["src/main.py"],
+    )
+
+    prompt = captured["messages"][0]["content"]
+    assert summary == "A concise repository summary."
+    assert "# Project README" in prompt
+    assert "[project]\nname = 'project'" in prompt
+    assert "src/main.py" in prompt
+    assert "src/util.py" in prompt
+    assert "no longer than 80 words" in prompt
+    assert captured["response_format"] == {"type": "json_object"}
+    assert captured["max_tokens"] == 900
+
+
 def test_analyze_file_retries_on_malformed_json(monkeypatch):
     service = AIService()
     service._redis_client = InMemoryRedis()

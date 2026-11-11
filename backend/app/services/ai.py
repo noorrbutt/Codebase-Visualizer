@@ -105,17 +105,32 @@ class AIService:
         repo_name: str,
         file_list: List[str],
         client_ip: str | None = None,
+        readme_excerpt: str | None = None,
+        manifest_excerpt: str | None = None,
+        top_files: List[str] | None = None,
     ) -> str:
         if not self.client:
             raise AIServiceError("GROQ_API_KEY not configured")
 
         self.ensure_budget_available(client_ip=client_ip)
 
+        context = [
+            f"Repository: {repo_name}",
+            f"Files: {', '.join(file_list[:50])}",
+            f"Most depended-on files: {', '.join(top_files or [])}",
+        ]
+        if readme_excerpt:
+            context.append(f"Root README excerpt:\n{readme_excerpt[:1500]}")
+        if manifest_excerpt:
+            context.append(f"Project manifest excerpt:\n{manifest_excerpt}")
+        repository_context = "\n".join(context)
+
         prompt = (
             "Write a 2-3 sentence plain-English summary as a senior developer explaining this repository to a teammate. "
-            "Cover what the project does, the main technology or framework, and the core modules or areas of responsibility. "
-            f"Base it only on the repository name and file structure: {repo_name}, files: {', '.join(file_list[:50])}. "
-            "Keep it factual and under 60 words. "
+            "Cover what the project does, its main technologies or frameworks, and its core modules or areas of responsibility. "
+            "Use the supplied README and manifest excerpts when available, together with the file structure and most depended-on files. "
+            "Keep the summary factual and no longer than 80 words. "
+            f"Repository context:\n{repository_context}\n"
             'Return ONLY a JSON object with exactly one key, "summary", containing that text. '
             "Return nothing else — no markdown, no explanation, just the JSON object."
         )
