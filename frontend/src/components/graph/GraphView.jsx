@@ -108,6 +108,7 @@ export default function GraphView({ nodes, edges, selectedNode, onSelectNode }) 
       </div>
       <canvas
         ref={canvasRef}
+        id="dependency-graph-canvas"
         style={{ width: "100%", height: "100%", cursor: "grab", display: "block" }}
         onMouseDown={onMouseDown}
         onMouseMove={onMouseMove}

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import LangDonut from "./components/charts/LangDonut";
 import ComplexityChart from "./components/charts/ComplexityChart";
 import ConnectionsChart from "./components/charts/ConnectionsChart";
@@ -8,6 +8,7 @@ import GraphView from "./components/graph/GraphView";
 import FileListPanel from "./components/panels/FileListPanel";
 import NodeDetail from "./components/panels/NodeDetail";
 import { apiFetch } from "./utils/api";
+import { copyMermaidGraph, exportGraphJson, exportGraphPng } from "./utils/export";
 
 function StatCard({ label, value, sub, icon, tint }) {
   return (
@@ -202,9 +203,23 @@ const TABS = [
   { id: "files",    label: "Files"    },
 ];
 
+const exportButtonStyle = {
+  padding: "7px 10px",
+  border: "1px solid var(--border)",
+  borderRadius: 7,
+  background: "var(--surface)",
+  color: "var(--fg)",
+  cursor: "pointer",
+  fontFamily: "'DM Sans', sans-serif",
+  fontSize: 12,
+  boxShadow: "0 1px 6px rgba(0,0,0,0.06)",
+};
+
 export default function DashboardPage({ data, onReset }) {
   const [activeTab, setActiveTab]     = useState("overview");
   const [selectedNode, setSelectedNode] = useState(null);
+  const [exportToast, setExportToast] = useState("");
+  const exportToastTimeout = useRef(null);
   const [refreshedChartData, setRefreshedChartData] = useState(null);
   const chartNodes = refreshedChartData?.repoId === data.id
     ? refreshedChartData.nodes
@@ -231,6 +246,8 @@ export default function DashboardPage({ data, onReset }) {
     };
   }, [data.id]);
 
+  useEffect(() => () => window.clearTimeout(exportToastTimeout.current), []);
+
   const totalLines = data.nodes.reduce((s, n) => s + (n.line_count || 0), 0);
   const connectedCount = new Set(data.edges.flatMap((e) => [e.source, e.target])).size;
   const selectMetricNode = (path) => {
@@ -238,6 +255,18 @@ export default function DashboardPage({ data, onReset }) {
     if (!node) return;
     setSelectedNode(node);
     setActiveTab("graph");
+  };
+  const exportFilename = `${data.owner}-${data.repo_name}`;
+  const notifyExport = async (action, successMessage) => {
+    window.clearTimeout(exportToastTimeout.current);
+    try {
+      await action();
+      setExportToast(successMessage);
+    } catch (error) {
+      console.error("Graph export failed:", error);
+      setExportToast(error instanceof Error ? error.message : "Export failed.");
+    }
+    exportToastTimeout.current = window.setTimeout(() => setExportToast(""), 3000);
   };
 
   return (
@@ -480,13 +509,23 @@ export default function DashboardPage({ data, onReset }) {
 
       {/* ── Graph ── */}
       {activeTab === "graph" && (
-        <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
+        <div style={{ flex: 1, display: "flex", overflow: "hidden", position: "relative" }}>
           <GraphView
             nodes={data.nodes}
             edges={data.edges}
             selectedNode={selectedNode}
             onSelectNode={setSelectedNode}
           />
+          <div style={{ position: "absolute", zIndex: 5, top: 12, right: selectedNode ? 332 : 12, display: "flex", gap: 6 }}>
+            <button type="button" onClick={() => notifyExport(() => exportGraphPng(document.getElementById("dependency-graph-canvas"), exportFilename), "PNG exported.")} style={exportButtonStyle}>PNG</button>
+            <button type="button" onClick={() => notifyExport(() => exportGraphJson({ id: data.id, owner: data.owner, name: data.repo_name }, data.nodes, data.edges, exportFilename), "JSON exported.")} style={exportButtonStyle}>JSON</button>
+            <button type="button" onClick={() => notifyExport(() => copyMermaidGraph(data.nodes, data.edges), "Mermaid copied to clipboard.")} style={exportButtonStyle}>Copy Mermaid</button>
+          </div>
+          {exportToast && (
+            <p role="status" style={{ position: "absolute", zIndex: 6, top: 52, right: selectedNode ? 332 : 12, margin: 0, padding: "7px 10px", borderRadius: 6, background: "#111827", color: "#fff", fontFamily: "'DM Sans', sans-serif", fontSize: 12 }}>
+              {exportToast}
+            </p>
+          )}
           <NodeDetail
             key={selectedNode?.id}
             node={selectedNode}
