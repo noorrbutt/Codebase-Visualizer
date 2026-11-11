@@ -19,7 +19,9 @@ export function exportGraphPng(canvas, filename) {
   output.height = canvas.height;
   const context = output.getContext("2d");
   if (!context) throw new Error("Could not prepare the graph image.");
-  context.fillStyle = "#fff";
+  context.fillStyle = getComputedStyle(document.documentElement)
+    .getPropertyValue("--export-background")
+    .trim();
   context.fillRect(0, 0, output.width, output.height);
   context.drawImage(canvas, 0, 0);
   return new Promise((resolve, reject) => {

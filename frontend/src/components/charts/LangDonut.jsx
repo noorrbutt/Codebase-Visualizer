@@ -88,7 +88,7 @@ export default function LangDonut({ nodes }) {
               style={{
                 fontFamily: "'DM Sans', sans-serif",
                 fontSize: 12,
-                color: "#374151",
+                color: "var(--fg-dim)",
                 flex: 1,
                 textTransform: "capitalize",
               }}
@@ -99,7 +99,7 @@ export default function LangDonut({ nodes }) {
               style={{
                 fontFamily: "'DM Mono', monospace",
                 fontSize: 11,
-                color: "#9CA3AF",
+                color: "var(--subtle)",
                 minWidth: 30,
                 textAlign: "right",
               }}

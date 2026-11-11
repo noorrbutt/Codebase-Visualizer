@@ -1,21 +1,22 @@
 export const LANG_COLOR = {
-  python: "#3B82F6",
-  javascript: "#F59E0B",
-  typescript: "#6366F1",
-  jsx: "#F59E0B",
-  tsx: "#6366F1",
-  css: "#8B5CF6",
-  html: "#EF4444",
-  markdown: "#6B7280",
-  default: "#9CA3AF",
+  python: "--lang-python",
+  javascript: "--lang-javascript",
+  typescript: "--lang-typescript",
+  jsx: "--lang-javascript",
+  tsx: "--lang-typescript",
+  css: "--lang-css",
+  html: "--lang-html",
+  markdown: "--lang-markdown",
+  default: "--lang-default",
 };
 
-export function getLangColor(lang) {
-  return LANG_COLOR[lang?.toLowerCase()] || LANG_COLOR.default;
+export function getLangColor(lang, styles = getComputedStyle(document.documentElement)) {
+  const variable = LANG_COLOR[lang?.toLowerCase()] || LANG_COLOR.default;
+  return styles.getPropertyValue(variable).trim();
 }
 
 export const COMPLEXITY_COLOR = {
-  low: "#10B981",
-  medium: "#F59E0B",
-  high: "#EF4444",
+  low: "var(--accent-green)",
+  medium: "var(--accent-amber)",
+  high: "var(--accent-red)",
 };

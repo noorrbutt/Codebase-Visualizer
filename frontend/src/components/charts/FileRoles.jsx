@@ -1,15 +1,15 @@
 import { useMemo } from "react";
 
 const ROLE_COLOR = {
-  entry_point: "#6366F1",
-  api_router: "#3B82F6",
-  data_model: "#10B981",
-  service: "#F59E0B",
-  utility: "#8B5CF6",
-  config: "#EC4899",
-  test: "#9CA3AF",
-  static: "#D1D5DB",
-  unknown: "#E5E7EB",
+  entry_point: "var(--role-entry)",
+  api_router: "var(--role-api)",
+  data_model: "var(--role-model)",
+  service: "var(--role-service)",
+  utility: "var(--role-utility)",
+  config: "var(--accent-pink)",
+  test: "var(--role-test)",
+  static: "var(--role-static)",
+  unknown: "var(--complexity-unknown)",
 };
 
 export default function FileRoles({ nodes }) {
@@ -24,7 +24,7 @@ export default function FileRoles({ nodes }) {
 
   if (!entries.length) {
     return (
-      <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 12, color: "#9CA3AF", margin: 0 }}>
+      <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 12, color: "var(--subtle)", margin: 0 }}>
         Automatic file analysis is pending or unavailable
       </p>
     );
@@ -36,14 +36,14 @@ export default function FileRoles({ nodes }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       {entries.map(([role, count]) => {
         const pct = (count / max) * 100;
-        const color = ROLE_COLOR[role] || "#6366F1";
+        const color = ROLE_COLOR[role] || "var(--role-entry)";
         return (
           <div key={role} style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <span
               style={{
                 fontFamily: "'DM Sans', sans-serif",
                 fontSize: 12,
-                color: "#4B5563",
+                color: "var(--fg-dim)",
                 textTransform: "capitalize",
                 width: 110,
                 flexShrink: 0,
@@ -58,7 +58,7 @@ export default function FileRoles({ nodes }) {
               style={{
                 flex: 1,
                 height: 6,
-                background: "#F3F4F6",
+                background: "var(--surface-soft)",
                 borderRadius: 3,
                 overflow: "hidden",
               }}
@@ -77,7 +77,7 @@ export default function FileRoles({ nodes }) {
               style={{
                 fontFamily: "'DM Mono', monospace",
                 fontSize: 10,
-                color: "#9CA3AF",
+                color: "var(--subtle)",
                 width: 22,
                 textAlign: "right",
                 flexShrink: 0,

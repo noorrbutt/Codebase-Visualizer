@@ -30,14 +30,14 @@ export default function TopFiles({ nodes, edges }) {
               alignItems: "center",
               gap: 10,
               padding: "8px 0",
-              borderBottom: i < ranked.length - 1 ? "1px solid #F3F4F6" : "none",
+              borderBottom: i < ranked.length - 1 ? "1px solid var(--border-soft)" : "none",
             }}
           >
             <span
               style={{
                 fontFamily: "'DM Mono', monospace",
                 fontSize: 10,
-                color: "#D1D5DB",
+                color: "var(--subtlest)",
                 width: 14,
                 textAlign: "right",
                 flexShrink: 0,
@@ -58,7 +58,7 @@ export default function TopFiles({ nodes, edges }) {
               style={{
                 fontFamily: "'DM Mono', monospace",
                 fontSize: 11,
-                color: "#374151",
+                color: "var(--fg-dim)",
                 flex: 1,
                 overflow: "hidden",
                 textOverflow: "ellipsis",
@@ -72,7 +72,7 @@ export default function TopFiles({ nodes, edges }) {
               style={{
                 width: 80,
                 height: 4,
-                background: "#F3F4F6",
+                background: "var(--surface-soft)",
                 borderRadius: 2,
                 flexShrink: 0,
                 overflow: "hidden",
@@ -92,7 +92,7 @@ export default function TopFiles({ nodes, edges }) {
               style={{
                 fontFamily: "'DM Mono', monospace",
                 fontSize: 10,
-                color: "#9CA3AF",
+                color: "var(--subtle)",
                 width: 20,
                 textAlign: "right",
                 flexShrink: 0,

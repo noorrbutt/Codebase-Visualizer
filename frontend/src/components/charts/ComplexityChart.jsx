@@ -1,10 +1,10 @@
 import { useMemo } from "react";
 
 const BARS = [
-  { key: "low",     label: "Low",  color: "#10B981" },
-  { key: "medium",  label: "Med",  color: "#F59E0B" },
-  { key: "high",    label: "High", color: "#EF4444" },
-  { key: "unknown", label: "N/A",  color: "#E5E7EB" },
+  { key: "low",     label: "Low",  color: "var(--accent-green)" },
+  { key: "medium",  label: "Med",  color: "var(--accent-amber)" },
+  { key: "high",    label: "High", color: "var(--accent-red)" },
+  { key: "unknown", label: "N/A",  color: "var(--complexity-unknown)" },
 ];
 
 export default function ComplexityChart({ nodes }) {
@@ -57,10 +57,10 @@ export default function ComplexityChart({ nodes }) {
           gap: 4,
         }}
       >
-        <span style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 12, color: "#9CA3AF" }}>
+        <span style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 12, color: "var(--subtle)" }}>
           Automatic file analysis is pending or unavailable
         </span>
-        <span style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 11, color: "#D1D5DB" }}>
+        <span style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 11, color: "var(--subtlest)" }}>
           Results appear once AI analysis finishes
         </span>
       </div>
@@ -123,7 +123,7 @@ export default function ComplexityChart({ nodes }) {
               style={{
                 fontFamily: "'DM Sans', sans-serif",
                 fontSize: 12,
-                color: "#374151",
+                color: "var(--fg-dim)",
                 flex: 1,
               }}
             >
@@ -134,7 +134,7 @@ export default function ComplexityChart({ nodes }) {
                 fontFamily: "'DM Mono', monospace",
                 fontSize: 12,
                 fontWeight: 600,
-                color: "#111827",
+                color: "var(--fg)",
                 minWidth: 20,
                 textAlign: "right",
               }}

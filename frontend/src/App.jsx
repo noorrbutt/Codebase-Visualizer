@@ -76,7 +76,7 @@ function HomePage({ onAnalyze, onOpenRepo, loading, externalError, onClearError,
   const errorMessage = error || externalError;
 
   return (
-    <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "2rem", background: "var(--bg)", backgroundImage: "radial-gradient(#E5E7EB 1px, transparent 1px)", backgroundSize: "24px 24px" }}>
+    <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "2rem", background: "var(--bg)", backgroundImage: "radial-gradient(var(--grid-dot) 1px, transparent 1px)", backgroundSize: "24px 24px" }}>
       <div style={{ maxWidth: 560, width: "100%", textAlign: "center" }}>
         <div style={{ marginBottom: "2.5rem" }}>
           <div style={{ display: "inline-flex", alignItems: "center", gap: 8, marginBottom: "1.5rem" }}>
@@ -99,7 +99,7 @@ function HomePage({ onAnalyze, onOpenRepo, loading, externalError, onClearError,
         </div>
 
         <form onSubmit={handleSubmit} style={{ marginBottom: "1.5rem" }}>
-          <div style={{ display: "flex", gap: 0, border: "1.5px solid var(--border)", borderRadius: 10, overflow: "hidden", background: "var(--surface)", transition: "border-color 0.15s", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
+          <div style={{ display: "flex", gap: 0, border: "1.5px solid var(--border)", borderRadius: 10, overflow: "hidden", background: "var(--surface)", transition: "border-color 0.15s", boxShadow: "var(--shadow-md)" }}>
             <input
               value={url}
               onChange={(e) => setUrl(e.target.value)}
@@ -115,12 +115,12 @@ function HomePage({ onAnalyze, onOpenRepo, loading, externalError, onClearError,
               {loading ? "Analyzing…" : "Visualize →"}
             </button>
           </div>
-          {errorMessage && <p style={{ margin: "8px 0 0", fontSize: 13, color: "#EF4444", fontFamily: "'DM Sans', sans-serif" }}>{errorMessage}</p>}
+          {errorMessage && <p style={{ margin: "8px 0 0", fontSize: 13, color: "var(--status-error)", fontFamily: "'DM Sans', sans-serif" }}>{errorMessage}</p>}
         </form>
 
         <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 24, flexWrap: "wrap" }}>
           {['Python', 'JavaScript', 'TypeScript', 'HTML/CSS'].map((l) => (
-            <span key={l} style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 12, color: "#9CA3AF", display: "flex", alignItems: "center", gap: 5 }}>
+            <span key={l} style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 12, color: "var(--subtle)", display: "flex", alignItems: "center", gap: 5 }}>
               <span style={{ width: 6, height: 6, borderRadius: "50%", background: getLangColor(l.toLowerCase().split("/")[0]), display: "inline-block" }} />
               {l}
             </span>
@@ -201,7 +201,7 @@ function LoadingPage({ repoName, stage }) {
               <circle cx="24" cy="24" r="20" fill="none" stroke="var(--fg)" strokeWidth="3" strokeDasharray="30 96" strokeLinecap="round" />
             </svg>
           </div>
-          <p style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, color: "#9CA3AF", letterSpacing: "0.08em", margin: "0 0 0.5rem" }}>ANALYZING</p>
+          <p style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, color: "var(--subtle)", letterSpacing: "0.08em", margin: "0 0 0.5rem" }}>ANALYZING</p>
           <h2 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: 22, fontWeight: 400, color: "var(--fg)", margin: "0 0 2rem" }}>
             {repoName || "repository"}{"...".slice(0, dots + 1)}
           </h2>
@@ -209,10 +209,10 @@ function LoadingPage({ repoName, stage }) {
         <div style={{ textAlign: "left" }}>
           {steps.map((s, i) => (
             <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: i < steps.length - 1 ? "1px solid var(--border)" : "none" }}>
-              <div style={{ width: 20, height: 20, borderRadius: "50%", background: s.done || s.active ? "#111827" : "#F3F4F6", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "background 0.3s" }}>
+              <div style={{ width: 20, height: 20, borderRadius: "50%", background: s.done || s.active ? "var(--fg)" : "var(--surface-soft)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "background 0.3s" }}>
                 {s.done
-                  ? <svg width="10" height="10" viewBox="0 0 10 10"><path d="M2 5l2.5 2.5L8 3" stroke="#fff" strokeWidth="1.5" fill="none" strokeLinecap="round" /></svg>
-                  : <div style={{ width: 6, height: 6, borderRadius: "50%", background: s.active ? "#fff" : "#D1D5DB" }} />
+                  ? <svg width="10" height="10" viewBox="0 0 10 10"><path d="M2 5l2.5 2.5L8 3" stroke="var(--surface)" strokeWidth="1.5" fill="none" strokeLinecap="round" /></svg>
+                  : <div style={{ width: 6, height: 6, borderRadius: "50%", background: s.active ? "var(--surface)" : "var(--subtlest)" }} />
                 }
               </div>
               <span style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 14, color: s.done || s.active ? "var(--fg)" : "var(--subtle)", transition: "color 0.3s" }}>{s.label}</span>
@@ -427,22 +427,177 @@ export default function App() {
         @import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=DM+Sans:wght@400;500&family=DM+Mono:wght@400;500&display=swap');
         * { box-sizing: border-box; margin: 0; padding: 0; }
         :root {
+          color-scheme: light;
           --bg: #F8F9FA;
           --surface: #FFFFFF;
+          --surface-raised: #FFFFFF;
+          --surface-soft: #F3F4F6;
+          --export-background: #FFFFFF;
           --border: #E5E7EB;
+          --border-soft: #F3F4F6;
           --fg: #111827;
           --fg-dim: #374151;
           --muted: #6B7280;
           --subtle: #9CA3AF;
+          --subtlest: #D1D5DB;
+          --grid-dot: #E5E7EB;
+          --input-bg: #FAFAF9;
+          --source-bg: #FAFAF9;
+          --source-fg: #1F2937;
+          --selected-bg: #F9FAFB;
+          --selected-hover: #FAFAF9;
+          --connected-bg: #F3F4F6;
+          --canvas-edge: rgba(0,0,0,0.06);
+          --canvas-edge-muted: rgba(0,0,0,0.015);
+          --canvas-edge-highlight: rgba(99,102,241,0.55);
+          --shadow-sm: 0 1px 2px rgba(16,24,40,0.04);
+          --shadow-md: 0 1px 6px rgba(0,0,0,0.06);
+          --shadow-lg: 0 2px 8px rgba(0,0,0,0.07);
           --accent-blue: #3B82F6;
           --accent-green: #10B981;
           --accent-purple: #8B5CF6;
           --accent-amber: #F59E0B;
+          --accent-red: #EF4444;
+          --accent-indigo: #6366F1;
+          --accent-pink: #EC4899;
+          --success-bg: #F0FDF4;
+          --success-fg: #166534;
+          --warning-bg: #FFFBEB;
+          --warning-badge: #FEF9C3;
+          --warning-border: #FDE68A;
+          --warning-fg: #92400E;
+          --danger-bg: #FEF2F2;
+          --danger-fg: #DC2626;
+          --card-blue-bg: #EEF2FF;
+          --card-blue-fg: #4F46E5;
+          --card-green-bg: #ECFDF5;
+          --card-green-fg: #059669;
+          --card-red-bg: #FEF2F2;
+          --card-red-fg: #DC2626;
+          --card-purple-bg: #F5F3FF;
+          --card-purple-fg: #7C3AED;
+          --card-orange-bg: #FFF7ED;
+          --card-orange-fg: #EA580C;
+          --card-gray-bg: #F3F4F6;
+          --card-gray-fg: #4B5563;
+          --chart-grid: #F0F1F3;
+          --chart-label: #B3B7BE;
+          --chart-unknown: #E5E7EB;
+          --role-test: #9CA3AF;
+          --role-static: #D1D5DB;
+          --status-error: #EF4444;
+          --status-link: #2563EB;
+          --lang-python: #3B82F6;
+          --lang-javascript: #F59E0B;
+          --lang-typescript: #6366F1;
+          --lang-css: #8B5CF6;
+          --lang-html: #EF4444;
+          --lang-markdown: #6B7280;
+          --lang-default: #9CA3AF;
+          --role-entry: #6366F1;
+          --role-api: #3B82F6;
+          --role-model: #10B981;
+          --role-service: #F59E0B;
+          --role-utility: #8B5CF6;
+          --role-config: #EC4899;
+          --complexity-unknown: #E5E7EB;
+        }
+        @media (prefers-color-scheme: dark) {
+          :root {
+            color-scheme: dark;
+            --bg: #111318;
+            --surface: #1B1E26;
+            --surface-raised: #242832;
+            --surface-soft: #292E39;
+            --border: #353B49;
+            --border-soft: #2A303B;
+            --fg: #F3F4F6;
+            --fg-dim: #D1D5DB;
+            --muted: #A1A8B5;
+            --subtle: #8B93A1;
+            --subtlest: #626B79;
+            --grid-dot: #303642;
+            --input-bg: #242832;
+            --source-bg: #171A21;
+            --source-fg: #D1D5DB;
+            --selected-bg: #292E39;
+            --selected-hover: #303642;
+            --connected-bg: #303642;
+            --canvas-edge: rgba(203,213,225,0.22);
+            --canvas-edge-muted: rgba(203,213,225,0.035);
+            --canvas-edge-highlight: rgba(129,140,248,0.75);
+            --shadow-sm: 0 1px 2px rgba(0,0,0,0.25);
+            --shadow-md: 0 1px 6px rgba(0,0,0,0.3);
+            --shadow-lg: 0 2px 8px rgba(0,0,0,0.4);
+            --success-bg: #163225;
+            --success-fg: #86EFAC;
+            --warning-bg: #332B19;
+            --warning-badge: #443819;
+            --warning-border: #655226;
+            --warning-fg: #FCD34D;
+            --danger-bg: #3A2024;
+            --danger-fg: #FCA5A5;
+            --card-blue-bg: #252D4B;
+            --card-blue-fg: #A5B4FC;
+            --card-green-bg: #18362D;
+            --card-green-fg: #6EE7B7;
+            --card-red-bg: #3A2024;
+            --card-red-fg: #FCA5A5;
+            --card-purple-bg: #302748;
+            --card-purple-fg: #C4B5FD;
+            --card-orange-bg: #3A2D1D;
+            --card-orange-fg: #FDBA74;
+            --card-gray-bg: #303642;
+            --card-gray-fg: #CBD5E1;
+            --chart-grid: #343A46;
+            --chart-label: #7D8695;
+            --chart-unknown: #424957;
+            --role-test: #9CA3AF;
+            --role-static: #6B7280;
+            --status-error: #FCA5A5;
+            --status-link: #93C5FD;
+            --role-test: #9CA3AF;
+            --role-static: #6B7280;
+            --complexity-unknown: #424957;
+          }
         }
         body { background: var(--bg); color: var(--fg); }
         button:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
         input:focus { border-color: var(--fg) !important; }
-        ::-webkit-scrollbar-thumb { background: #E5E7EB; }
+        ::-webkit-scrollbar-thumb { background: var(--border); }
+        .dashboard-root { min-width: 0; }
+        .dashboard-header { gap: 8px; }
+        .dashboard-header-brand { min-width: 0; }
+        .dashboard-tabs { flex-shrink: 0; }
+        .dashboard-overview { min-width: 0; }
+        .dashboard-chart-grid { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+        .dashboard-bottom-grid { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+        .dashboard-graph-layout { min-width: 0; }
+        .dashboard-detail-panel { min-width: 0; }
+        .graph-export-actions { right: 12px !important; }
+        .graph-export-toast { right: 12px !important; }
+        @media (max-width: 800px) {
+          .dashboard-header { height: auto !important; min-height: 52px; flex-wrap: wrap; padding: 8px 12px !important; }
+          .dashboard-header-brand { flex: 1 1 60%; }
+          .dashboard-tabs { order: 3; width: 100%; justify-content: center; }
+          .dashboard-graph-layout, .dashboard-files-layout { flex-direction: column !important; }
+          .dashboard-graph-canvas { flex: 1 1 55% !important; min-height: 200px; }
+          .dashboard-graph-layout .dashboard-detail-panel { flex: 0 0 40%; width: 100% !important; height: auto; border-left: 0 !important; border-top: 1px solid var(--border); }
+          .dashboard-file-list { flex: 1 1 50%; min-height: 0; height: auto !important; }
+          .dashboard-files-layout .dashboard-detail-panel { flex: 1 1 50%; width: 100% !important; height: auto; border-left: 0 !important; border-top: 1px solid var(--border); }
+          .dashboard-graph-layout .graph-export-actions { top: 60px !important; }
+          .dashboard-graph-layout .graph-export-toast { top: 100px !important; }
+          .dashboard-graph-layout .graph-export-actions.has-selection { top: 150px !important; }
+          .dashboard-graph-layout .graph-export-toast.has-selection { top: 190px !important; }
+          .graph-selected-node { top: 102px !important; max-width: calc(100% - 24px); }
+        }
+        @media (max-width: 480px) {
+          .dashboard-overview { padding: 12px !important; }
+          .dashboard-header-brand > span:nth-of-type(1) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+          .graph-export-actions { gap: 4px !important; }
+          .graph-export-actions button { padding: 6px 7px !important; font-size: 11px !important; }
+          .graph-hint { display: none; }
+        }
       `}</style>
       {view === "home" && <HomePage onAnalyze={analyze} onOpenRepo={openReadyRepo} loading={loading} externalError={analysisError} onClearError={() => setAnalysisError("")} initialUrl={retryUrl} />}
       {view === "loading" && <LoadingPage repoName={repoName} stage={pollStage} />}

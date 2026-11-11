@@ -40,8 +40,8 @@ export default function ConnectionsChart({ nodes, edges }) {
       <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ overflow: "visible" }}>
         <defs>
           <linearGradient id="connFill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#6366F1" stopOpacity="0.28" />
-            <stop offset="100%" stopColor="#6366F1" stopOpacity="0" />
+            <stop offset="0%" stopColor="var(--accent-indigo)" stopOpacity="0.28" />
+            <stop offset="100%" stopColor="var(--accent-indigo)" stopOpacity="0" />
           </linearGradient>
         </defs>
 
@@ -50,8 +50,8 @@ export default function ConnectionsChart({ nodes, edges }) {
           const val = Math.round(maxBin - (maxBin / GRID_LINES) * i);
           return (
             <g key={i}>
-              <line x1={PAD_L} x2={W - PAD_R} y1={gy} y2={gy} stroke="#F0F1F3" strokeWidth={1} />
-              <text x={PAD_L - 6} y={gy + 3} textAnchor="end" style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, fill: "#B3B7BE" }}>
+              <line x1={PAD_L} x2={W - PAD_R} y1={gy} y2={gy} stroke="var(--chart-grid)" strokeWidth={1} />
+              <text x={PAD_L - 6} y={gy + 3} textAnchor="end" style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, fill: "var(--chart-label)" }}>
                 {val}
               </text>
             </g>
@@ -59,10 +59,10 @@ export default function ConnectionsChart({ nodes, edges }) {
         })}
 
         <path d={areaPath} fill="url(#connFill)" />
-        <path d={linePath} fill="none" stroke="#6366F1" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+        <path d={linePath} fill="none" stroke="var(--accent-indigo)" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
 
         {coords.map((p, i) => (
-          <circle key={i} cx={p.x} cy={p.y} r={3} fill="#fff" stroke="#6366F1" strokeWidth={2} />
+          <circle key={i} cx={p.x} cy={p.y} r={3} fill="var(--surface)" stroke="var(--accent-indigo)" strokeWidth={2} />
         ))}
 
         {coords.map((p, i) => {
@@ -74,14 +74,14 @@ export default function ConnectionsChart({ nodes, edges }) {
               x={p.x}
               y={H - 4}
               textAnchor="middle"
-              style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, fill: "#9CA3AF" }}
+              style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, fill: "var(--subtle)" }}
             >
               {rangeStart}-{rangeEnd}
             </text>
           );
         })}
       </svg>
-      <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 10, color: "#9CA3AF", marginTop: 6, textAlign: "center" }}>
+      <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 10, color: "var(--subtle)", marginTop: 6, textAlign: "center" }}>
         files per connection-count range
       </p>
     </div>

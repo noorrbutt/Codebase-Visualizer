@@ -16,6 +16,10 @@ export function useForceGraph(
   const dragStartRef = useRef(null);
   const dragNodeRef = useRef(null);
   const hoveredRef = useRef(null);
+  const activePointersRef = useRef(new Map());
+  const pinchRef = useRef(null);
+  const hadPinchRef = useRef(false);
+  const suppressClickRef = useRef(false);
   const allowedPaths = useMemo(() => {
     const allowed = new Set(visiblePaths);
     if (!neighborhoodOnly || !selectedNode) return allowed;
@@ -48,6 +52,8 @@ export function useForceGraph(
     const { x, y, scale } = transformRef.current;
     const w = canvas.clientWidth;
     const h = canvas.clientHeight;
+    const styles = getComputedStyle(document.documentElement);
+    const themeColor = (name) => styles.getPropertyValue(name).trim();
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
     ctx.save();
@@ -84,8 +90,8 @@ export function useForceGraph(
       const isSearchMatch =
         !query || e.source.toLowerCase().includes(query) || e.target.toLowerCase().includes(query);
       ctx.strokeStyle = isHighlighted
-        ? "rgba(99,102,241,0.55)"
-        : isSearchMatch ? "rgba(0,0,0,0.06)" : "rgba(0,0,0,0.015)";
+        ? themeColor("--canvas-edge-highlight")
+        : isSearchMatch ? themeColor("--canvas-edge") : themeColor("--canvas-edge-muted");
       ctx.lineWidth = isHighlighted ? 1.5 / scale : 0.8 / scale;
       ctx.stroke();
     });
@@ -102,7 +108,7 @@ export function useForceGraph(
 
       ctx.beginPath();
       ctx.arc(n.x, n.y, r / scale, 0, Math.PI * 2);
-      ctx.fillStyle = getLangColor(n.language);
+      ctx.fillStyle = getLangColor(n.language, styles);
       ctx.globalAlpha = isDimmed ? 0.12 : isSelected ? 1 : isHovered ? 0.95 : 0.72;
       ctx.fill();
       ctx.globalAlpha = 1;
@@ -110,7 +116,7 @@ export function useForceGraph(
       if (isSelected || isHovered) {
         ctx.beginPath();
         ctx.arc(n.x, n.y, (r + 4) / scale, 0, Math.PI * 2);
-        ctx.strokeStyle = getLangColor(n.language);
+        ctx.strokeStyle = getLangColor(n.language, styles);
         ctx.lineWidth = 2 / scale;
         ctx.globalAlpha = isSelected ? 1 : 0.5;
         ctx.stroke();
@@ -120,7 +126,7 @@ export function useForceGraph(
       if (!isDimmed && (scale > 0.55 || isSelected || isHovered)) {
         const label = n.path.split("/").pop();
         ctx.font = `${isSelected ? "500 " : ""}${11 / scale}px 'DM Mono', monospace`;
-        ctx.fillStyle = isSelected ? "#111827" : isConnected ? "#374151" : "#9CA3AF";
+        ctx.fillStyle = isSelected ? themeColor("--fg") : isConnected ? themeColor("--fg-dim") : themeColor("--subtle");
         ctx.globalAlpha = isDimmed ? 0.08 : 1;
         ctx.fillText(label, n.x + (r + 4) / scale, n.y + 4 / scale);
         ctx.globalAlpha = 1;
@@ -236,7 +242,36 @@ export function useForceGraph(
     );
   }, [canvasRef, isNodeVisible]);
 
-  const onMouseDown = useCallback((e) => {
+  const onPointerDown = useCallback((e) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    suppressClickRef.current = false;
+    if (activePointersRef.current.size === 0) hadPinchRef.current = false;
+    canvas.setPointerCapture(e.pointerId);
+    activePointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    if (activePointersRef.current.size >= 2) {
+      hadPinchRef.current = true;
+      if (dragNodeRef.current) dragNodeRef.current.fixed = true;
+      dragNodeRef.current = null;
+      isDraggingRef.current = false;
+      const points = [...activePointersRef.current.values()];
+      const midpoint = {
+        x: ((points[0].x + points[1].x) / 2) - canvas.getBoundingClientRect().left,
+        y: ((points[0].y + points[1].y) / 2) - canvas.getBoundingClientRect().top,
+      };
+      const distance = Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y);
+      const transform = transformRef.current;
+      pinchRef.current = {
+        distance,
+        scale: transform.scale,
+        worldX: (midpoint.x - transform.x) / transform.scale,
+        worldY: (midpoint.y - transform.y) / transform.scale,
+      };
+      suppressClickRef.current = true;
+      return;
+    }
+
     const node = getNode(e.clientX, e.clientY);
     if (node) {
       dragNodeRef.current = node;
@@ -248,23 +283,46 @@ export function useForceGraph(
         y: e.clientY - transformRef.current.y,
       };
     }
-  }, [getNode]);
+  }, [canvasRef, getNode]);
 
-  const onMouseMove = useCallback((e) => {
-    if (dragNodeRef.current) {
-      const canvas = canvasRef.current;
+  const onPointerMove = useCallback((e) => {
+    const canvas = canvasRef.current;
+    if (activePointersRef.current.has(e.pointerId)) {
+      activePointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    }
+    if (activePointersRef.current.size >= 2 && pinchRef.current && canvas) {
+      const points = [...activePointersRef.current.values()];
       const rect = canvas.getBoundingClientRect();
+      const midpoint = {
+        x: (points[0].x + points[1].x) / 2 - rect.left,
+        y: (points[0].y + points[1].y) / 2 - rect.top,
+      };
+      const distance = Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y);
+      const pinch = pinchRef.current;
+      const scale = Math.max(0.1, Math.min(4, pinch.scale * distance / (pinch.distance || 1)));
+      transformRef.current = {
+        x: midpoint.x - pinch.worldX * scale,
+        y: midpoint.y - pinch.worldY * scale,
+        scale,
+      };
+      suppressClickRef.current = true;
+      draw();
+      return;
+    }
+    if (dragNodeRef.current) {
+      const rect = canvas?.getBoundingClientRect();
+      if (!rect) return;
       const { x, y, scale } = transformRef.current;
       dragNodeRef.current.x = (e.clientX - rect.left - x) / scale;
       dragNodeRef.current.y = (e.clientY - rect.top - y) / scale;
       draw();
     } else if (isDraggingRef.current) {
+      if (activePointersRef.current.has(e.pointerId)) suppressClickRef.current = true;
       transformRef.current.x = e.clientX - dragStartRef.current.x;
       transformRef.current.y = e.clientY - dragStartRef.current.y;
       draw();
     } else {
       const node = getNode(e.clientX, e.clientY);
-      const canvas = canvasRef.current;
       if (canvas) canvas.style.cursor = node ? "pointer" : "grab";
       const prev = hoveredRef.current;
       hoveredRef.current = node?.path || null;
@@ -272,13 +330,25 @@ export function useForceGraph(
     }
   }, [canvasRef, draw, getNode]);
 
-  const onMouseUp = useCallback(() => {
+  const onPointerUp = useCallback((e) => {
+    activePointersRef.current.delete(e.pointerId);
+    if (hadPinchRef.current) suppressClickRef.current = true;
     if (dragNodeRef.current) {
       dragNodeRef.current.fixed = true;
       dragNodeRef.current = null;
     }
     isDraggingRef.current = false;
     dragStartRef.current = null;
+    if (activePointersRef.current.size < 2) pinchRef.current = null;
+    if (activePointersRef.current.size === 1) {
+      const remaining = [...activePointersRef.current.values()][0];
+      isDraggingRef.current = true;
+      dragStartRef.current = {
+        x: remaining.x - transformRef.current.x,
+        y: remaining.y - transformRef.current.y,
+      };
+    }
+    if (activePointersRef.current.size === 0) hadPinchRef.current = false;
   }, []);
 
   const onWheel = useCallback((e) => {
@@ -299,6 +369,10 @@ export function useForceGraph(
   }, [canvasRef, draw]);
 
   const onClick = useCallback((e) => {
+    if (suppressClickRef.current) {
+      suppressClickRef.current = false;
+      return;
+    }
     const node = getNode(e.clientX, e.clientY);
     onSelectNode(node);
   }, [getNode, onSelectNode]);
@@ -317,5 +391,5 @@ export function useForceGraph(
     draw();
   }, [canvasRef, draw]);
 
-  return { onMouseDown, onMouseMove, onMouseUp, onWheel, onClick, centerNode };
+  return { onPointerDown, onPointerMove, onPointerUp, onWheel, onClick, centerNode };
 }

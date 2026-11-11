@@ -21,7 +21,7 @@ function StatCard({ label, value, sub, icon, tint }) {
         display: "flex",
         alignItems: "center",
         gap: 14,
-        boxShadow: "0 1px 2px rgba(16,24,40,0.04)",
+        boxShadow: "var(--shadow-sm)",
       }}
     >
       <div
@@ -144,7 +144,7 @@ function MetricPathList({ title, items, onSelectPath, formatItem = (item) => ite
 
 function ArchitectureMetrics({ metrics, onSelectPath }) {
   return (
-    <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, padding: "18px 20px", boxShadow: "0 1px 2px rgba(16,24,40,0.04)" }}>
+    <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, padding: "18px 20px", boxShadow: "var(--shadow-sm)" }}>
       <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 11, fontWeight: 600, color: "var(--subtle)", letterSpacing: "0.06em", textTransform: "uppercase", margin: "0 0 14px" }}>
         Architecture metrics
       </p>
@@ -174,7 +174,7 @@ function ChartCard({ title, children, minHeight = 260 }) {
         flexDirection: "column",
         gap: 14,
         minHeight,
-        boxShadow: "0 1px 2px rgba(16,24,40,0.04)",
+        boxShadow: "var(--shadow-sm)",
       }}
     >
       <p
@@ -212,7 +212,7 @@ const exportButtonStyle = {
   cursor: "pointer",
   fontFamily: "'DM Sans', sans-serif",
   fontSize: 12,
-  boxShadow: "0 1px 6px rgba(0,0,0,0.06)",
+  boxShadow: "var(--shadow-md)",
 };
 
 export default function DashboardPage({ data, onReset }) {
@@ -270,10 +270,11 @@ export default function DashboardPage({ data, onReset }) {
   };
 
   return (
-    <div style={{ height: "100vh", display: "flex", flexDirection: "column", background: "var(--bg)" }}>
+    <div className="dashboard-root" style={{ height: "100dvh", display: "flex", flexDirection: "column", background: "var(--bg)" }}>
 
       {/* ── Header ── */}
       <header
+        className="dashboard-header"
         style={{
           height: 52,
           borderBottom: "1px solid var(--border)",
@@ -286,7 +287,7 @@ export default function DashboardPage({ data, onReset }) {
           zIndex: 20,
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <div className="dashboard-header-brand" style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <button
             onClick={onReset}
             style={{
@@ -314,8 +315,8 @@ export default function DashboardPage({ data, onReset }) {
           {data.status === "ready" && (
             <span
               style={{
-                background: "#F0FDF4",
-                color: "#166534",
+                background: "var(--success-bg)",
+                color: "var(--success-fg)",
                 fontSize: 11,
                 fontFamily: "'DM Sans', sans-serif",
                 padding: "2px 7px",
@@ -327,7 +328,7 @@ export default function DashboardPage({ data, onReset }) {
           )}
         </div>
 
-        <div style={{ display: "flex", gap: 2 }}>
+        <div className="dashboard-tabs" style={{ display: "flex", gap: 2 }}>
           {TABS.map((t) => (
             <button
               key={t.id}
@@ -371,9 +372,9 @@ export default function DashboardPage({ data, onReset }) {
       {data.summary && (
         <div
           style={{
-            borderBottom: "1px solid #FEF3C7",
+            borderBottom: "1px solid var(--warning-border)",
             padding: "10px 1.25rem",
-            background: "#FFFBEB",
+            background: "var(--warning-bg)",
             flexShrink: 0,
             display: "flex",
             alignItems: "flex-start",
@@ -385,13 +386,13 @@ export default function DashboardPage({ data, onReset }) {
               display: "inline-flex",
               alignItems: "center",
               gap: 4,
-              background: "#FEF9C3",
-              border: "1px solid #FDE68A",
+              background: "var(--warning-badge)",
+              border: "1px solid var(--warning-border)",
               borderRadius: 6,
               padding: "3px 8px",
               fontFamily: "'DM Sans', sans-serif",
               fontSize: 11,
-              color: "#92400E",
+              color: "var(--warning-fg)",
               fontWeight: 500,
               flexShrink: 0,
               marginTop: 2,
@@ -403,7 +404,7 @@ export default function DashboardPage({ data, onReset }) {
             style={{
               fontFamily: "'DM Sans', sans-serif",
               fontSize: 14,
-              color: "#1F2937",
+              color: "var(--fg-dim)",
               margin: 0,
               lineHeight: 1.6,
             }}
@@ -415,12 +416,12 @@ export default function DashboardPage({ data, onReset }) {
 
       {/* ── Overview ── */}
       {activeTab === "overview" && (
-        <div style={{ flex: 1, overflowY: "auto", padding: "1.25rem" }}>
+        <div className="dashboard-overview" style={{ flex: 1, overflowY: "auto", padding: "1.25rem" }}>
           {/* Stat row */}
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
               gap: 10,
               marginBottom: 14,
             }}
@@ -429,27 +430,27 @@ export default function DashboardPage({ data, onReset }) {
               label="Total files"
               value={data.nodes.length.toLocaleString()}
               icon={ICONS.files}
-              tint={{ bg: "#EEF2FF", fg: "#4F46E5" }}
+              tint={{ bg: "var(--card-blue-bg)", fg: "var(--card-blue-fg)" }}
             />
             <StatCard
               label="Connected files"
               value={connectedCount.toLocaleString()}
               sub={`${Math.round((connectedCount / data.nodes.length) * 100)}% of codebase`}
               icon={ICONS.link}
-              tint={{ bg: "#ECFDF5", fg: "#059669" }}
+              tint={{ bg: "var(--card-green-bg)", fg: "var(--card-green-fg)" }}
             />
             <StatCard
               label="Dependencies"
               value={data.edges.length.toLocaleString()}
               sub="import connections"
               icon={ICONS.deps}
-              tint={{ bg: "#FEF2F2", fg: "#DC2626" }}
+              tint={{ bg: "var(--card-red-bg)", fg: "var(--card-red-fg)" }}
             />
             <StatCard
               label="Total lines"
               value={totalLines > 999 ? `${(totalLines / 1000).toFixed(1)}k` : totalLines}
               icon={ICONS.lines}
-              tint={{ bg: "#F5F3FF", fg: "#7C3AED" }}
+              tint={{ bg: "var(--card-purple-bg)", fg: "var(--card-purple-fg)" }}
             />
             {data.metrics && (
               <>
@@ -457,13 +458,13 @@ export default function DashboardPage({ data, onReset }) {
                   label="Cycles"
                   value={data.metrics.cycle_count.toLocaleString()}
                   icon={ICONS.cycles}
-                  tint={{ bg: "#FFF7ED", fg: "#EA580C" }}
+                  tint={{ bg: "var(--card-orange-bg)", fg: "var(--card-orange-fg)" }}
                 />
                 <StatCard
                   label="Orphans"
                   value={data.metrics.orphan_count.toLocaleString()}
                   icon={ICONS.orphans}
-                  tint={{ bg: "#F3F4F6", fg: "#4B5563" }}
+                  tint={{ bg: "var(--card-gray-bg)", fg: "var(--card-gray-fg)" }}
                 />
               </>
             )}
@@ -473,10 +474,11 @@ export default function DashboardPage({ data, onReset }) {
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "1fr 1fr 1fr",
+              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
               gap: 12,
               marginBottom: 12,
             }}
+            className="dashboard-chart-grid"
           >
             <ChartCard title="Languages">
               <LangDonut nodes={data.nodes} />
@@ -496,7 +498,7 @@ export default function DashboardPage({ data, onReset }) {
           )}
 
           {/* Bottom row */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <div className="dashboard-bottom-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 }}>
             <ChartCard title="Most connected files">
               <TopFiles nodes={data.nodes} edges={data.edges} />
             </ChartCard>
@@ -509,20 +511,20 @@ export default function DashboardPage({ data, onReset }) {
 
       {/* ── Graph ── */}
       {activeTab === "graph" && (
-        <div style={{ flex: 1, display: "flex", overflow: "hidden", position: "relative" }}>
+        <div className="dashboard-graph-layout" style={{ flex: 1, display: "flex", overflow: "hidden", position: "relative" }}>
           <GraphView
             nodes={data.nodes}
             edges={data.edges}
             selectedNode={selectedNode}
             onSelectNode={setSelectedNode}
           />
-          <div style={{ position: "absolute", zIndex: 5, top: 12, right: selectedNode ? 332 : 12, display: "flex", gap: 6 }}>
+          <div className={`graph-export-actions${selectedNode ? " has-selection" : ""}`} style={{ position: "absolute", zIndex: 5, top: 12, right: selectedNode ? 332 : 12, display: "flex", gap: 6 }}>
             <button type="button" onClick={() => notifyExport(() => exportGraphPng(document.getElementById("dependency-graph-canvas"), exportFilename), "PNG exported.")} style={exportButtonStyle}>PNG</button>
             <button type="button" onClick={() => notifyExport(() => exportGraphJson({ id: data.id, owner: data.owner, name: data.repo_name }, data.nodes, data.edges, exportFilename), "JSON exported.")} style={exportButtonStyle}>JSON</button>
             <button type="button" onClick={() => notifyExport(() => copyMermaidGraph(data.nodes, data.edges), "Mermaid copied to clipboard.")} style={exportButtonStyle}>Copy Mermaid</button>
           </div>
           {exportToast && (
-            <p role="status" style={{ position: "absolute", zIndex: 6, top: 52, right: selectedNode ? 332 : 12, margin: 0, padding: "7px 10px", borderRadius: 6, background: "#111827", color: "#fff", fontFamily: "'DM Sans', sans-serif", fontSize: 12 }}>
+            <p className={`graph-export-toast${selectedNode ? " has-selection" : ""}`} role="status" style={{ position: "absolute", zIndex: 6, top: 52, right: selectedNode ? 332 : 12, margin: 0, padding: "7px 10px", borderRadius: 6, background: "var(--fg)", color: "var(--surface)", fontFamily: "'DM Sans', sans-serif", fontSize: 12 }}>
               {exportToast}
             </p>
           )}
@@ -541,7 +543,7 @@ export default function DashboardPage({ data, onReset }) {
 
       {/* ── Files ── */}
       {activeTab === "files" && (
-        <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
+        <div className="dashboard-files-layout" style={{ flex: 1, display: "flex", overflow: "hidden" }}>
           <FileListPanel
             nodes={data.nodes}
             edges={data.edges}

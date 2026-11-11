@@ -26,9 +26,9 @@ export default function GraphView({ nodes, edges, selectedNode, onSelectNode }) 
     [nodes, hiddenLanguages],
   );
   const {
-    onMouseDown,
-    onMouseMove,
-    onMouseUp,
+    onPointerDown,
+    onPointerMove,
+    onPointerUp,
     onWheel,
     onClick,
     centerNode,
@@ -63,6 +63,13 @@ export default function GraphView({ nodes, edges, selectedNode, onSelectNode }) 
     };
   }, []);
 
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return undefined;
+    canvas.addEventListener("wheel", onWheel, { passive: false });
+    return () => canvas.removeEventListener("wheel", onWheel);
+  }, [onWheel]);
+
   const handleSearchKeyDown = (event) => {
     if (event.key !== "Enter") return;
     const firstMatch = matchingPaths.find((path) => visiblePaths.has(path));
@@ -84,7 +91,7 @@ export default function GraphView({ nodes, edges, selectedNode, onSelectNode }) 
   };
 
   return (
-    <div style={{ flex: 1, position: "relative", overflow: "hidden" }}>
+    <div className="dashboard-graph-canvas" style={{ flex: 1, position: "relative", overflow: "hidden", minWidth: 0 }}>
       <div style={{ position: "absolute", zIndex: 2, top: 12, left: 12, display: "flex", flexDirection: "column", gap: 8, width: "min(360px, calc(100% - 24px))" }}>
         <input
           type="search"
@@ -93,10 +100,10 @@ export default function GraphView({ nodes, edges, selectedNode, onSelectNode }) 
           onKeyDown={handleSearchKeyDown}
           placeholder="Search files by path…"
           aria-label="Search files by path"
-          style={{ width: "100%", padding: "9px 12px", border: "1px solid #E5E7EB", borderRadius: 8, background: "#fff", fontFamily: "'DM Sans', sans-serif", fontSize: 13, boxShadow: "0 1px 6px rgba(0,0,0,0.06)" }}
+          style={{ width: "100%", padding: "9px 12px", border: "1px solid var(--border)", borderRadius: 8, background: "var(--surface)", color: "var(--fg)", fontFamily: "'DM Sans', sans-serif", fontSize: 13, boxShadow: "var(--shadow-md)" }}
         />
         {selectedNode && (
-          <label style={{ alignSelf: "flex-start", display: "flex", alignItems: "center", gap: 7, padding: "6px 9px", border: "1px solid #E5E7EB", borderRadius: 7, background: "#fff", color: "#4B5563", fontFamily: "'DM Sans', sans-serif", fontSize: 12 }}>
+          <label style={{ alignSelf: "flex-start", display: "flex", alignItems: "center", gap: 7, padding: "6px 9px", border: "1px solid var(--border)", borderRadius: 7, background: "var(--surface)", color: "var(--fg-dim)", fontFamily: "'DM Sans', sans-serif", fontSize: 12 }}>
             <input
               type="checkbox"
               checked={neighborhoodOnly}
@@ -109,11 +116,11 @@ export default function GraphView({ nodes, edges, selectedNode, onSelectNode }) 
       <canvas
         ref={canvasRef}
         id="dependency-graph-canvas"
-        style={{ width: "100%", height: "100%", cursor: "grab", display: "block" }}
-        onMouseDown={onMouseDown}
-        onMouseMove={onMouseMove}
-        onMouseUp={onMouseUp}
-        onWheel={onWheel}
+        style={{ width: "100%", height: "100%", cursor: "grab", display: "block", touchAction: "none" }}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
         onClick={onClick}
       />
 
@@ -123,21 +130,21 @@ export default function GraphView({ nodes, edges, selectedNode, onSelectNode }) 
           position: "absolute",
           left: 12,
           bottom: 14,
-          background: "#fff",
-          border: "1px solid #E5E7EB",
+          background: "var(--surface)",
+          border: "1px solid var(--border)",
           borderRadius: 8,
           padding: "8px 12px",
           display: "flex",
           flexDirection: "column",
           gap: 6,
-          boxShadow: "0 1px 6px rgba(0,0,0,0.06)",
+          boxShadow: "var(--shadow-md)",
         }}
       >
         <p
           style={{
             fontFamily: "'DM Sans', sans-serif",
             fontSize: 10,
-            color: "#9CA3AF",
+            color: "var(--subtle)",
             margin: 0,
             letterSpacing: "0.06em",
           }}
@@ -154,9 +161,9 @@ export default function GraphView({ nodes, edges, selectedNode, onSelectNode }) 
               aria-pressed={visible}
               onClick={() => toggleLanguage(l)}
               style={{
-                background: visible ? "#111" : "transparent",
-                color: visible ? "#fff" : "#6B7280",
-                border: `1px solid ${visible ? "#111" : "#E5E7EB"}`,
+                background: visible ? "var(--fg)" : "transparent",
+                color: visible ? "var(--surface)" : "var(--muted)",
+                border: `1px solid ${visible ? "var(--fg)" : "var(--border)"}`,
                 borderRadius: 5,
                 padding: "2px 7px",
                 fontFamily: "'DM Sans', sans-serif",
@@ -167,7 +174,7 @@ export default function GraphView({ nodes, edges, selectedNode, onSelectNode }) 
                 gap: 4,
               }}
             >
-              <span style={{ width: 5, height: 5, borderRadius: "50%", background: visible ? "#fff" : getLangColor(l) }} />
+              <span style={{ width: 5, height: 5, borderRadius: "50%", background: visible ? "var(--surface)" : getLangColor(l) }} />
               {l}
             </button>
             );
@@ -177,13 +184,14 @@ export default function GraphView({ nodes, edges, selectedNode, onSelectNode }) 
 
       {/* Hint */}
       <p
+        className="graph-hint"
         style={{
           position: "absolute",
           right: 14,
           bottom: 14,
           fontFamily: "'DM Sans', sans-serif",
           fontSize: 11,
-          color: "#9CA3AF",
+          color: "var(--subtle)",
           margin: 0,
         }}
       >
@@ -193,19 +201,20 @@ export default function GraphView({ nodes, edges, selectedNode, onSelectNode }) 
       {/* Selected node overlay */}
       {selectedNode && (
         <div
+          className="graph-selected-node"
           style={{
             position: "absolute",
             top: 12,
             left: "50%",
             transform: "translateX(-50%)",
-            background: "#fff",
-            border: "1px solid #E5E7EB",
+            background: "var(--surface)",
+            border: "1px solid var(--border)",
             borderRadius: 8,
             padding: "6px 14px",
             display: "flex",
             alignItems: "center",
             gap: 8,
-            boxShadow: "0 2px 8px rgba(0,0,0,0.07)",
+            boxShadow: "var(--shadow-lg)",
           }}
         >
           <span
@@ -220,7 +229,7 @@ export default function GraphView({ nodes, edges, selectedNode, onSelectNode }) 
             style={{
               fontFamily: "'DM Mono', monospace",
               fontSize: 12,
-              color: "#111",
+              color: "var(--fg)",
             }}
           >
             {selectedNode.path.split("/").pop()}
@@ -231,7 +240,7 @@ export default function GraphView({ nodes, edges, selectedNode, onSelectNode }) 
               background: "none",
               border: "none",
               cursor: "pointer",
-              color: "#9CA3AF",
+              color: "var(--subtle)",
               fontSize: 14,
               padding: "0 0 0 4px",
               lineHeight: 1,

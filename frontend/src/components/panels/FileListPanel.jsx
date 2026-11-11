@@ -39,12 +39,12 @@ export default function FileListPanel({ nodes, edges, onSelectNode, selectedNode
   );
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
+    <div className="dashboard-file-list" style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
       {/* Toolbar */}
       <div
         style={{
           padding: "10px 14px",
-          borderBottom: "1px solid #F3F4F6",
+          borderBottom: "1px solid var(--border-soft)",
           display: "flex",
           gap: 6,
           flexShrink: 0,
@@ -56,13 +56,14 @@ export default function FileListPanel({ nodes, edges, onSelectNode, selectedNode
           placeholder="Filter files…"
           style={{
             flex: 1,
-            border: "1px solid #E5E7EB",
+            border: "1px solid var(--border)",
             borderRadius: 6,
             padding: "5px 8px",
             fontFamily: "'DM Mono', monospace",
             fontSize: 11,
             outline: "none",
-            background: "#FAFAF9",
+            background: "var(--input-bg)",
+            color: "var(--fg)",
             minWidth: 0,
           }}
         />
@@ -70,12 +71,13 @@ export default function FileListPanel({ nodes, edges, onSelectNode, selectedNode
           value={sortBy}
           onChange={(e) => setSortBy(e.target.value)}
           style={{
-            border: "1px solid #E5E7EB",
+            border: "1px solid var(--border)",
             borderRadius: 6,
             padding: "5px 6px",
             fontFamily: "'DM Sans', sans-serif",
             fontSize: 11,
-            background: "#FAFAF9",
+            background: "var(--input-bg)",
+            color: "var(--fg)",
             cursor: "pointer",
           }}
         >
@@ -89,7 +91,7 @@ export default function FileListPanel({ nodes, edges, onSelectNode, selectedNode
       <div
         style={{
           padding: "6px 14px",
-          borderBottom: "1px solid #F3F4F6",
+          borderBottom: "1px solid var(--border-soft)",
           display: "flex",
           gap: 4,
           flexWrap: "wrap",
@@ -101,9 +103,9 @@ export default function FileListPanel({ nodes, edges, onSelectNode, selectedNode
             key={l}
             onClick={() => setLangFilter(l)}
             style={{
-              background: langFilter === l ? "#111" : "transparent",
-              color: langFilter === l ? "#fff" : "#6B7280",
-              border: `1px solid ${langFilter === l ? "#111" : "#E5E7EB"}`,
+              background: langFilter === l ? "var(--fg)" : "transparent",
+              color: langFilter === l ? "var(--surface)" : "var(--muted)",
+              border: `1px solid ${langFilter === l ? "var(--fg)" : "var(--border)"}`,
               borderRadius: 5,
               padding: "2px 7px",
               fontFamily: "'DM Sans', sans-serif",
@@ -120,7 +122,7 @@ export default function FileListPanel({ nodes, edges, onSelectNode, selectedNode
                   width: 5,
                   height: 5,
                   borderRadius: "50%",
-                  background: langFilter === l ? "#fff" : getLangColor(l),
+                  background: langFilter === l ? "var(--surface)" : getLangColor(l),
                 }}
               />
             )}
@@ -133,7 +135,7 @@ export default function FileListPanel({ nodes, edges, onSelectNode, selectedNode
       <div
         style={{
           padding: "5px 14px",
-          borderBottom: "1px solid #F3F4F6",
+          borderBottom: "1px solid var(--border-soft)",
           flexShrink: 0,
         }}
       >
@@ -141,7 +143,7 @@ export default function FileListPanel({ nodes, edges, onSelectNode, selectedNode
           style={{
             fontFamily: "'DM Mono', monospace",
             fontSize: 10,
-            color: "#9CA3AF",
+            color: "var(--subtle)",
           }}
         >
           {filtered.length} file{filtered.length !== 1 ? "s" : ""}
@@ -164,17 +166,17 @@ export default function FileListPanel({ nodes, edges, onSelectNode, selectedNode
               onClick={() => onSelectNode(n)}
               style={{
                 padding: "8px 14px",
-                borderBottom: "1px solid #F9FAFB",
+                borderBottom: "1px solid var(--border-soft)",
                 cursor: "pointer",
                 display: "flex",
                 alignItems: "center",
                 gap: 8,
-                background: isSelected ? "#F9FAFB" : "transparent",
-                borderLeft: isSelected ? "2px solid #111" : "2px solid transparent",
+                background: isSelected ? "var(--selected-bg)" : "transparent",
+                borderLeft: isSelected ? "2px solid var(--fg)" : "2px solid transparent",
                 transition: "background 0.12s",
               }}
               onMouseEnter={(e) => {
-                if (!isSelected) e.currentTarget.style.background = "#FAFAF9";
+                if (!isSelected) e.currentTarget.style.background = "var(--selected-hover)";
               }}
               onMouseLeave={(e) => {
                 if (!isSelected) e.currentTarget.style.background = "transparent";
@@ -194,7 +196,7 @@ export default function FileListPanel({ nodes, edges, onSelectNode, selectedNode
                   style={{
                     fontFamily: "'DM Mono', monospace",
                     fontSize: 11,
-                    color: "#111",
+                    color: "var(--fg)",
                     margin: 0,
                     overflow: "hidden",
                     textOverflow: "ellipsis",
@@ -208,7 +210,7 @@ export default function FileListPanel({ nodes, edges, onSelectNode, selectedNode
                     style={{
                       fontFamily: "'DM Mono', monospace",
                       fontSize: 10,
-                      color: "#D1D5DB",
+                      color: "var(--subtlest)",
                       margin: 0,
                       overflow: "hidden",
                       textOverflow: "ellipsis",
@@ -225,7 +227,7 @@ export default function FileListPanel({ nodes, edges, onSelectNode, selectedNode
                     style={{
                       fontFamily: "'DM Mono', monospace",
                       fontSize: 10,
-                      color: "#D1D5DB",
+                      color: "var(--subtlest)",
                     }}
                   >
                     {n.line_count}L
@@ -236,8 +238,8 @@ export default function FileListPanel({ nodes, edges, onSelectNode, selectedNode
                     style={{
                       fontFamily: "'DM Mono', monospace",
                       fontSize: 10,
-                      color: "#9CA3AF",
-                      background: "#F3F4F6",
+                      color: "var(--subtle)",
+                      background: "var(--surface-soft)",
                       borderRadius: 4,
                       padding: "1px 5px",
                     }}
@@ -254,7 +256,7 @@ export default function FileListPanel({ nodes, edges, onSelectNode, selectedNode
             style={{
               fontFamily: "'DM Sans', sans-serif",
               fontSize: 12,
-              color: "#9CA3AF",
+              color: "var(--subtle)",
               textAlign: "center",
               margin: "24px 0",
             }}

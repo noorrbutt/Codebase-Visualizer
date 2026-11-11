@@ -2,7 +2,7 @@ import { useState } from "react";
 import { getLangColor, COMPLEXITY_COLOR } from "../../utils/lang";
 import { apiFetch } from "../../utils/api";
 
-function Badge({ children, color = "#F3F4F6", textColor = "#374151" }) {
+function Badge({ children, color = "var(--surface-soft)", textColor = "var(--fg-dim)" }) {
   return (
     <span
       style={{
@@ -28,13 +28,13 @@ function MetaGrid({ items }) {
       {items.map(({ label, value }) => (
         <div
           key={label}
-          style={{ background: "#F9FAFB", borderRadius: 6, padding: "7px 9px" }}
+          style={{ background: "var(--selected-bg)", borderRadius: 6, padding: "7px 9px" }}
         >
           <p
             style={{
               fontFamily: "'DM Sans', sans-serif",
               fontSize: 10,
-              color: "#9CA3AF",
+              color: "var(--subtle)",
               margin: "0 0 2px",
             }}
           >
@@ -44,7 +44,7 @@ function MetaGrid({ items }) {
             style={{
               fontFamily: "'DM Mono', monospace",
               fontSize: 12,
-              color: "#111",
+              color: "var(--fg)",
               margin: 0,
               textTransform: "capitalize",
             }}
@@ -140,14 +140,15 @@ export default function NodeDetail({ node, edges, repoId, repoOwner, repoName, r
     ai_role: node.ai_role,
   } : null);
 
-  const complexityColor = COMPLEXITY_COLOR[effectiveAnalysis?.ai_complexity?.toLowerCase()] || "#9CA3AF";
+  const complexityColor = COMPLEXITY_COLOR[effectiveAnalysis?.ai_complexity?.toLowerCase()] || "var(--subtle)";
 
   return (
     <div
+      className="dashboard-detail-panel"
       style={{
         width: 280,
-        borderLeft: "1px solid #E5E7EB",
-        background: "#fff",
+        borderLeft: "1px solid var(--border)",
+        background: "var(--surface)",
         display: "flex",
         flexDirection: "column",
         overflow: "hidden",
@@ -158,7 +159,7 @@ export default function NodeDetail({ node, edges, repoId, repoOwner, repoName, r
       <div
         style={{
           padding: "10px 14px",
-          borderBottom: "1px solid #F3F4F6",
+          borderBottom: "1px solid var(--border-soft)",
           display: "flex",
           alignItems: "flex-start",
           gap: 8,
@@ -179,7 +180,7 @@ export default function NodeDetail({ node, edges, repoId, repoOwner, repoName, r
             style={{
               fontFamily: "'DM Mono', monospace",
               fontSize: 12,
-              color: "#111",
+              color: "var(--fg)",
               margin: "0 0 2px",
               wordBreak: "break-all",
               fontWeight: 500,
@@ -192,7 +193,7 @@ export default function NodeDetail({ node, edges, repoId, repoOwner, repoName, r
               style={{
                 fontFamily: "'DM Mono', monospace",
                 fontSize: 10,
-                color: "#9CA3AF",
+                color: "var(--subtle)",
                 margin: 0,
                 wordBreak: "break-all",
               }}
@@ -207,7 +208,7 @@ export default function NodeDetail({ node, edges, repoId, repoOwner, repoName, r
             background: "none",
             border: "none",
             cursor: "pointer",
-            color: "#9CA3AF",
+            color: "var(--subtle)",
             fontSize: 18,
             lineHeight: 1,
             padding: 2,
@@ -222,7 +223,7 @@ export default function NodeDetail({ node, edges, repoId, repoOwner, repoName, r
       <div
         style={{
           display: "flex",
-          borderBottom: "1px solid #F3F4F6",
+          borderBottom: "1px solid var(--border-soft)",
           padding: "0 14px",
           gap: 0,
         }}
@@ -234,11 +235,11 @@ export default function NodeDetail({ node, edges, repoId, repoOwner, repoName, r
             style={{
               background: "none",
               border: "none",
-              borderBottom: tab === t ? "2px solid #111" : "2px solid transparent",
+              borderBottom: tab === t ? "2px solid var(--fg)" : "2px solid transparent",
               padding: "8px 10px",
               fontFamily: "'DM Sans', sans-serif",
               fontSize: 12,
-              color: tab === t ? "#111" : "#9CA3AF",
+              color: tab === t ? "var(--fg)" : "var(--subtle)",
               cursor: "pointer",
               fontWeight: tab === t ? 500 : 400,
               textTransform: "capitalize",
@@ -253,7 +254,7 @@ export default function NodeDetail({ node, edges, repoId, repoOwner, repoName, r
       {/* Tab: Info */}
       {tab === "info" && (
         <div style={{ flex: 1, overflowY: "auto" }}>
-          <div style={{ padding: "12px 14px", borderBottom: "1px solid #F3F4F6" }}>
+          <div style={{ padding: "12px 14px", borderBottom: "1px solid var(--border-soft)" }}>
             <MetaGrid
               items={[
                 { label: "Language", value: node.language },
@@ -272,7 +273,7 @@ export default function NodeDetail({ node, edges, repoId, repoOwner, repoName, r
                 style={{
                   fontFamily: "'DM Sans', sans-serif",
                   fontSize: 12,
-                  color: "#9CA3AF",
+                  color: "var(--subtle)",
                   margin: 0,
                 }}
               >
@@ -284,7 +285,7 @@ export default function NodeDetail({ node, edges, repoId, repoOwner, repoName, r
                 style={{
                   fontFamily: "'DM Sans', sans-serif",
                   fontSize: 12,
-                  color: "#EF4444",
+                  color: "var(--status-error)",
                   margin: 0,
                 }}
               >
@@ -299,7 +300,6 @@ export default function NodeDetail({ node, edges, repoId, repoOwner, repoName, r
                   )}
                   {effectiveAnalysis.ai_complexity && (
                     <Badge
-                      color={`${complexityColor}22`}
                       textColor={complexityColor}
                     >
                       {effectiveAnalysis.ai_complexity} complexity
@@ -312,7 +312,7 @@ export default function NodeDetail({ node, edges, repoId, repoOwner, repoName, r
                       style={{
                         fontFamily: "'DM Sans', sans-serif",
                         fontSize: 12,
-                        color: "#4B5563",
+                        color: "var(--fg-dim)",
                         lineHeight: 1.65,
                         margin: 0,
                       }}
@@ -325,7 +325,7 @@ export default function NodeDetail({ node, edges, repoId, repoOwner, repoName, r
                           style={{
                             fontFamily: "'DM Sans', sans-serif",
                             fontSize: 12,
-                            color: "#4B5563",
+                            color: "var(--fg-dim)",
                             lineHeight: 1.65,
                             margin: 0,
                             display: showSummaryDetail ? "block" : "-webkit-box",
@@ -342,7 +342,7 @@ export default function NodeDetail({ node, edges, repoId, repoOwner, repoName, r
                             marginTop: 6,
                             background: "none",
                             border: "none",
-                            color: "#2563EB",
+                            color: "var(--status-link)",
                             cursor: "pointer",
                             fontFamily: "'DM Sans', sans-serif",
                             fontSize: 12,
@@ -361,13 +361,13 @@ export default function NodeDetail({ node, edges, repoId, repoOwner, repoName, r
               <button
                 onClick={fetchAnalysis}
                 style={{
-                  background: "#F9FAFB",
-                  border: "1px solid #E5E7EB",
+                  background: "var(--selected-bg)",
+                  border: "1px solid var(--border)",
                   borderRadius: 7,
                   padding: "7px 12px",
                   fontFamily: "'DM Sans', sans-serif",
                   fontSize: 12,
-                  color: "#374151",
+                  color: "var(--fg-dim)",
                   cursor: "pointer",
                   width: "100%",
                   textAlign: "left",
@@ -382,7 +382,7 @@ export default function NodeDetail({ node, edges, repoId, repoOwner, repoName, r
 
       {/* Tab: Source */}
       {tab === "content" && (
-        <div style={{ flex: 1, overflow: "auto", background: "#FAFAF9" }}>
+        <div style={{ flex: 1, overflow: "auto", background: "var(--source-bg)" }}>
           {loadingContent ? (
             <div
               style={{
@@ -390,7 +390,7 @@ export default function NodeDetail({ node, edges, repoId, repoOwner, repoName, r
                 alignItems: "center",
                 justifyContent: "center",
                 height: "100%",
-                color: "#9CA3AF",
+                color: "var(--subtle)",
                 fontFamily: "'DM Sans', sans-serif",
                 fontSize: 12,
               }}
@@ -405,7 +405,7 @@ export default function NodeDetail({ node, edges, repoId, repoOwner, repoName, r
                 fontFamily: "'DM Mono', monospace",
                 fontSize: 10.5,
                 lineHeight: 1.7,
-                color: "#1F2937",
+                color: "var(--source-fg)",
                 whiteSpace: "pre",
                 overflowX: "auto",
               }}
