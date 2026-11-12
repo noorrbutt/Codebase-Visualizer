@@ -9,7 +9,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:e2e": "npm run build && playwright test"
+    "test:e2e": "vite build --mode e2e && playwright test"
   },
   "dependencies": {
     "react": "^19.2.6",
