@@ -266,6 +266,10 @@ export default function App() {
       }
       const json = await res.json();
       if (!isCurrent()) return;
+      if (json.status === "ready") {
+        fetchRepo(json.id, true, isCurrent);
+        return;
+      }
       setData(json);
       setPollStage("fetching");
       startPolling(json.id, isCurrent);

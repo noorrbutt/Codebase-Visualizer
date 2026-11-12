@@ -63,3 +63,25 @@ test("analyzes a repository and opens a selected node's details", async ({ page 
   await expect(page.getByText("App.jsx", { exact: true }).last()).toBeVisible();
   await expect(page.getByRole("button", { name: "Close details for src/App.jsx" })).toBeVisible();
 });
+
+test("loads a cached analysis without polling repository status", async ({ page }) => {
+  let statusRequests = 0;
+  await page.route("**/repos/analyze", async (route) => {
+    await route.fulfill({ json: { id: repo.id, status: "ready" } });
+  });
+  await page.route(`**/repos/${repo.id}/status`, async (route) => {
+    statusRequests += 1;
+    await route.fulfill({ json: { status: "ready", stage: "complete" } });
+  });
+  await page.route(`**/repos/${repo.id}`, async (route) => {
+    await route.fulfill({ json: repo });
+  });
+
+  await page.goto("/");
+  await page.getByRole("textbox", { name: "GitHub repository URL" })
+    .fill("https://github.com/example/demo");
+  await page.getByRole("button", { name: "Visualize" }).click();
+
+  await expect(page.getByRole("tab", { name: "Overview" })).toBeVisible({ timeout: 10_000 });
+  expect(statusRequests).toBe(0);
+});
