@@ -778,7 +778,7 @@ def _get_fresh_repo_analysis(repo_key: str, force: bool) -> dict | None:
             raise HTTPException(
                 status_code=409, detail="Repository analysis is already in progress"
             )
-        if repo.status != "ready" or force:
+        if repo.status != "ready":
             return None
 
         updated_at = repo.updated_at or repo.created_at
@@ -787,6 +787,8 @@ def _get_fresh_repo_analysis(repo_key: str, force: bool) -> dict | None:
         if updated_at.tzinfo is None:
             updated_at = updated_at.replace(tzinfo=timezone.utc)
         age_seconds = (datetime.now(timezone.utc) - updated_at).total_seconds()
+        if force and age_seconds >= settings.FORCE_REFRESH_MIN_AGE_SECONDS:
+            return None
         if age_seconds >= settings.REPO_CACHE_TTL_SECONDS:
             return None
 

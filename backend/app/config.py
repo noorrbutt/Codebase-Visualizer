@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     AUTO_ANALYZE_TOP_FILES: int = 5
     ANALYSIS_TIMEOUT_SECONDS: int = 240
     REPO_CACHE_TTL_SECONDS: int = 3600
+    FORCE_REFRESH_MIN_AGE_SECONDS: int = 300
     TRUST_PROXY_HEADERS: bool = False
     # Number of trusted proxies appending to X-Forwarded-For; the client IP is the entry this many positions from the right.
     TRUSTED_PROXY_COUNT: int = 0

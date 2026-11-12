@@ -341,6 +341,7 @@ def test_analyze_reuses_ready_repo_within_cache_ttl(client, monkeypatch):
 
 
 def test_force_analyze_reuses_repository_row_and_schedules_rebuild(client, monkeypatch):
+    old_timestamp = datetime.now(timezone.utc) - timedelta(seconds=600)
     with database_module.SessionLocal() as db:
         repo = Repository(
             owner="octocat",
@@ -349,6 +350,8 @@ def test_force_analyze_reuses_repository_row_and_schedules_rebuild(client, monke
             default_branch="main",
             status="ready",
             error_message="old error",
+            created_at=old_timestamp,
+            updated_at=old_timestamp,
         )
         db.add(repo)
         db.commit()
@@ -394,6 +397,50 @@ def test_force_analyze_reuses_repository_row_and_schedules_rebuild(client, monke
         assert repos[0].id == repo_id
         assert repos[0].status == "parsing"
         assert repos[0].error_message is None
+
+
+def test_force_analyze_reuses_repository_younger_than_force_refresh_cooldown(
+    client, monkeypatch
+):
+    recent_timestamp = datetime.now(timezone.utc) - timedelta(seconds=10)
+    with database_module.SessionLocal() as db:
+        repo = Repository(
+            owner="octocat",
+            repo_name="hello-world",
+            github_url="https://github.com/octocat/hello-world",
+            default_branch="main",
+            status="ready",
+            summary="cached summary",
+            created_at=recent_timestamp,
+            updated_at=recent_timestamp,
+        )
+        db.add(repo)
+        db.commit()
+        repo_id = repo.id
+
+    def unexpected_call(*args, **kwargs):
+        raise AssertionError("force refresh cooldown should reuse the cached analysis")
+
+    monkeypatch.setattr(
+        repos_module.github_service, "get_repo_metadata", unexpected_call
+    )
+    monkeypatch.setattr(repos_module.repo_rate_limiter, "allow", lambda ip: True)
+
+    response = client.post(
+        "/repos/analyze",
+        json={"github_url": "https://github.com/octocat/hello-world", "force": True},
+        headers={"X-API-Key": "test-api-key"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["id"] == repo_id
+    assert response.json()["status"] == "ready"
+    assert response.json()["summary"] == "cached summary"
+
+    with database_module.SessionLocal() as db:
+        repos = db.query(Repository).all()
+        assert len(repos) == 1
+        assert repos[0].status == "ready"
 
 
 def test_rebuild_preserves_ai_fields_for_unchanged_files(client, monkeypatch):
