@@ -35,6 +35,8 @@ class AIService:
         self.client_daily_limit = (
             client_daily_limit if client_daily_limit is not None else settings.AI_MAX_CLIENT_REQUESTS_PER_DAY
         )
+        self.auto_hourly_limit = settings.AI_AUTO_HOURLY_LIMIT
+        self.auto_daily_limit = settings.AI_AUTO_DAILY_LIMIT
         self._redis_client = redis_client
 
     def _get_redis_client(self) -> Redis:
@@ -43,6 +45,13 @@ class AIService:
     def ensure_budget_available(self, client_ip: str | None = None) -> None:
         redis_client = self._get_redis_client()
         client_identifier = client_ip or "unknown"
+        is_system_client = bool(client_ip and client_ip.startswith("system:"))
+        client_hourly_limit = (
+            self.auto_hourly_limit if is_system_client else self.client_hourly_limit
+        )
+        client_daily_limit = (
+            self.auto_daily_limit if is_system_client else self.client_daily_limit
+        )
 
         hourly_key = "ai_budget:hourly"
         daily_key = "ai_budget:daily"
@@ -50,22 +59,22 @@ class AIService:
         client_daily_key = f"ai_budget:daily:{client_identifier}"
 
         client_hourly_count = int(redis_client.get(client_hourly_key) or 0)
-        if client_hourly_count >= self.client_hourly_limit:
+        if client_hourly_count >= client_hourly_limit:
             logger.warning(
                 "AI hourly client budget exceeded for client {}: client_hourly={} limit={}",
                 client_identifier,
                 client_hourly_count,
-                self.client_hourly_limit,
+                client_hourly_limit,
             )
             raise AIBudgetExceededError("AI request hourly client budget exceeded")
 
         client_daily_count = int(redis_client.get(client_daily_key) or 0)
-        if client_daily_count >= self.client_daily_limit:
+        if client_daily_count >= client_daily_limit:
             logger.warning(
                 "AI daily client budget exceeded for client {}: client_daily={} limit={}",
                 client_identifier,
                 client_daily_count,
-                self.client_daily_limit,
+                client_daily_limit,
             )
             raise AIBudgetExceededError("AI request daily client budget exceeded")
 

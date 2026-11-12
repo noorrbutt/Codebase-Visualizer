@@ -36,6 +36,8 @@ class Settings(BaseSettings):
     AI_MAX_REQUESTS_PER_DAY: int = 1500
     AI_MAX_CLIENT_REQUESTS_PER_HOUR: int = 20
     AI_MAX_CLIENT_REQUESTS_PER_DAY: int = 60
+    AI_AUTO_HOURLY_LIMIT: int = 60
+    AI_AUTO_DAILY_LIMIT: int = 300
 
     @field_validator("DATABASE_URL", mode="after")
     @classmethod

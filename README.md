@@ -267,6 +267,7 @@ Backend tests cover import parsing (`test_parser.py`, `test_import_resolution.py
 | `MAX_CONCURRENT_REPO_ANALYSES` | No | Global cap on simultaneously running repo analyses. |
 | `AI_MAX_REQUESTS_PER_HOUR` / `AI_MAX_REQUESTS_PER_DAY` | No | Global AI request budget. |
 | `AI_MAX_CLIENT_REQUESTS_PER_HOUR` / `AI_MAX_CLIENT_REQUESTS_PER_DAY` | No | Per client AI request budget. Raise locally (for example 100 / 200) if repeatedly testing from the same machine. |
+| `AI_AUTO_HOURLY_LIMIT` / `AI_AUTO_DAILY_LIMIT` | No | Per-system-client budget for automatic AI analysis; global AI limits still apply. |
 | `TRUST_PROXY_HEADERS` | No | Only set to `true` behind a trusted reverse proxy that strips and sets `X-Forwarded-For`; otherwise IP rate limiting is trivially bypassed. |
 
 ## Limitations and notes

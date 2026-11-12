@@ -261,6 +261,58 @@ def test_ai_service_client_budget_exceeded_while_global_budget_has_room():
         service.ensure_budget_available(client_ip="198.51.100.7")
 
 
+def test_ai_auto_client_uses_automatic_hourly_budget(monkeypatch, fake_redis):
+    monkeypatch.setattr(settings, "AI_AUTO_HOURLY_LIMIT", 60)
+    monkeypatch.setattr(settings, "AI_AUTO_DAILY_LIMIT", 300)
+    service = AIService(
+        hourly_limit=100,
+        daily_limit=1000,
+        client_hourly_limit=20,
+        client_daily_limit=60,
+        redis_client=fake_redis,
+    )
+
+    for _ in range(60):
+        service.ensure_budget_available(client_ip="system:auto")
+
+    with pytest.raises(AIBudgetExceededError, match="client"):
+        service.ensure_budget_available(client_ip="system:auto")
+
+
+def test_ai_auto_client_uses_automatic_daily_budget(monkeypatch, fake_redis):
+    monkeypatch.setattr(settings, "AI_AUTO_HOURLY_LIMIT", 60)
+    monkeypatch.setattr(settings, "AI_AUTO_DAILY_LIMIT", 2)
+    service = AIService(
+        hourly_limit=100,
+        daily_limit=1000,
+        client_hourly_limit=20,
+        client_daily_limit=1,
+        redis_client=fake_redis,
+    )
+
+    service.ensure_budget_available(client_ip="system:auto")
+    service.ensure_budget_available(client_ip="system:auto")
+
+    with pytest.raises(AIBudgetExceededError, match="daily client"):
+        service.ensure_budget_available(client_ip="system:auto")
+
+
+def test_ai_normal_client_remains_capped_at_client_hourly_budget(fake_redis):
+    service = AIService(
+        hourly_limit=100,
+        daily_limit=1000,
+        client_hourly_limit=20,
+        client_daily_limit=60,
+        redis_client=fake_redis,
+    )
+
+    for _ in range(20):
+        service.ensure_budget_available(client_ip="198.51.100.7")
+
+    with pytest.raises(AIBudgetExceededError, match="client"):
+        service.ensure_budget_available(client_ip="198.51.100.7")
+
+
 def test_ai_client_budget_rejection_does_not_increment_global_counters():
     redis = FakeRedis()
     service = AIService(
