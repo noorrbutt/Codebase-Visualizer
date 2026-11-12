@@ -61,11 +61,19 @@ jobs:
           cd frontend
           npm audit --audit-level=high
         continue-on-error: false
+      - name: Run frontend unit tests
+        run: |
+          cd frontend
+          npm test
       - name: Lint frontend
         run: |
           cd frontend
           npm run lint
-      - name: Build frontend
+      - name: Install Playwright Chromium
         run: |
           cd frontend
-          npm run build
+          npx playwright install --only-shell chromium
+      - name: Run Playwright smoke tests
+        run: |
+          cd frontend
+          npm run test:e2e
