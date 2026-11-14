@@ -11,7 +11,7 @@ export default function ComplexityChart({ nodes }) {
   const counts = useMemo(() => {
     const c = { low: 0, medium: 0, high: 0, unknown: 0 };
     nodes.forEach((n) => {
-      const k = n.ai_complexity?.toLowerCase();
+      const k = (n.ai_complexity ?? n.complexity)?.toLowerCase();
       if (k === "low" || k === "medium" || k === "high") c[k]++;
       else c.unknown++;
     });

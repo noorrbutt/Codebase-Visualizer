@@ -16,8 +16,9 @@ export default function FileRoles({ nodes }) {
   const entries = useMemo(() => {
     const roles = {};
     nodes.forEach((n) => {
-      if (!n.ai_role) return;
-      roles[n.ai_role] = (roles[n.ai_role] || 0) + 1;
+      const role = n.ai_role ?? n.role;
+      if (!role) return;
+      roles[role] = (roles[role] || 0) + 1;
     });
     return Object.entries(roles).sort((a, b) => b[1] - a[1]).slice(0, 8);
   }, [nodes]);

@@ -285,6 +285,10 @@ def test_get_repo_by_name_is_case_insensitive_and_returns_graph(client):
     assert response.json()["id"] == repo_id
     assert response.json()["summary"] == "summary"
     assert response.json()["nodes"][0]["path"] == "src/app.py"
+    assert response.json()["nodes"][0]["ai_role"] is None
+    assert response.json()["nodes"][0]["ai_complexity"] is None
+    assert response.json()["nodes"][0]["role"] == "entry_point"
+    assert response.json()["nodes"][0]["complexity"] == "low"
     assert response.json()["edges"][0]["target"] == "src/utils.py"
     assert response.json()["metrics"]["top_fan_out"] == [
         {"path": "src/app.py", "count": 1}

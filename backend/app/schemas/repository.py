@@ -27,6 +27,8 @@ class FileNodeOut(BaseModel):
     ai_summary_detail: str | None
     ai_complexity: str | None
     ai_role: str | None
+    complexity: str
+    role: str
 
     model_config = ConfigDict(from_attributes=True)
 

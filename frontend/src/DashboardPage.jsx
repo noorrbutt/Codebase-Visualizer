@@ -7,7 +7,6 @@ import FileRoles from "./components/charts/FileRoles";
 import GraphView from "./components/graph/GraphView";
 import FileListPanel from "./components/panels/FileListPanel";
 import NodeDetail from "./components/panels/NodeDetail";
-import { apiFetch } from "./utils/api";
 import { copyMermaidGraph, exportGraphJson, exportGraphPng } from "./utils/export";
 
 function StatCard({ label, value, sub, icon, tint }) {
@@ -221,31 +220,6 @@ export default function DashboardPage({ data, onReset }) {
   const [exportToast, setExportToast] = useState("");
   const [exportToastError, setExportToastError] = useState(false);
   const exportToastTimeout = useRef(null);
-  const [refreshedChartData, setRefreshedChartData] = useState(null);
-  const chartNodes = refreshedChartData?.repoId === data.id
-    ? refreshedChartData.nodes
-    : data.nodes;
-
-  useEffect(() => {
-    let active = true;
-    const timeout = setTimeout(async () => {
-      try {
-        const response = await apiFetch(`/repos/${data.id}`);
-        if (!response.ok) throw new Error("Could not refresh repository analysis");
-        const refreshedData = await response.json();
-        if (active && refreshedData.status === "ready") {
-          setRefreshedChartData({ repoId: data.id, nodes: refreshedData.nodes });
-        }
-      } catch (error) {
-        console.error("Failed to refresh repository charts:", error);
-      }
-    }, 20_000);
-
-    return () => {
-      active = false;
-      clearTimeout(timeout);
-    };
-  }, [data.id]);
 
   useEffect(() => () => window.clearTimeout(exportToastTimeout.current), []);
 
@@ -535,7 +509,7 @@ export default function DashboardPage({ data, onReset }) {
               <LangDonut nodes={data.nodes} />
             </ChartCard>
             <ChartCard title="Complexity">
-              <ComplexityChart nodes={chartNodes} />
+              <ComplexityChart nodes={data.nodes} />
             </ChartCard>
             <ChartCard title="Connections distribution">
               <ConnectionsChart nodes={data.nodes} edges={data.edges} />
@@ -554,7 +528,7 @@ export default function DashboardPage({ data, onReset }) {
               <TopFiles nodes={data.nodes} edges={data.edges} />
             </ChartCard>
             <ChartCard title="File roles">
-              <FileRoles nodes={chartNodes} />
+              <FileRoles nodes={data.nodes} />
             </ChartCard>
           </div>
         </div>

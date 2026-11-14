@@ -34,6 +34,7 @@ from app.services.ai import AIService
 from app.services.coordination import RedisConcurrencyGate, RedisMutex
 from app.services.github import GithubService
 from app.services.graph_metrics import compute_graph_metrics
+from app.services.heuristics import infer_complexity, infer_file_role
 from app.services.parser import CodeParser
 from app.services.rate_limit import IPRateLimiter
 from app.logging import get_logger
@@ -419,7 +420,14 @@ def _build_edges(
     return edges
 
 
-def _normalize_file_records(file_nodes: list[FileNode]) -> list[FileNodeOut]:
+def _normalize_file_records(
+    file_nodes: list[FileNode],
+    edges: list[FileEdgeModel] | None = None,
+) -> list[FileNodeOut]:
+    fan_out: dict[str, int] = {}
+    for edge in edges or []:
+        fan_out[edge.source] = fan_out.get(edge.source, 0) + 1
+
     return [
         FileNodeOut(
             id=node.id,
@@ -431,6 +439,12 @@ def _normalize_file_records(file_nodes: list[FileNode]) -> list[FileNodeOut]:
             ai_summary_detail=node.ai_summary_detail,
             ai_complexity=node.ai_complexity,
             ai_role=node.ai_role,
+            complexity=infer_complexity(
+                node.line_count,
+                node.import_count,
+                fan_out.get(node.file_path, 0),
+            ),
+            role=infer_file_role(node.file_path),
         )
         for node in file_nodes
     ]
@@ -1250,7 +1264,7 @@ def get_repo_by_name(owner: str, repo: str, db: Session = Depends(get_db)) -> An
 
     nodes = db.query(FileNode).filter(FileNode.repo_id == record.id).all()
     edges = db.query(FileEdgeModel).filter(FileEdgeModel.repo_id == record.id).all()
-    node_records = _normalize_file_records(nodes)
+    node_records = _normalize_file_records(nodes, edges)
     return AnalyzeResponse(
         id=record.id,
         repo_name=record.repo_name,
@@ -1278,7 +1292,7 @@ def get_repo(repo_id: int, db: Session = Depends(get_db)) -> AnalyzeResponse:
 
     nodes = db.query(FileNode).filter(FileNode.repo_id == repo_id).all()
     edges = db.query(FileEdgeModel).filter(FileEdgeModel.repo_id == repo_id).all()
-    node_records = _normalize_file_records(nodes)
+    node_records = _normalize_file_records(nodes, edges)
 
     return AnalyzeResponse(
         id=repo.id,
