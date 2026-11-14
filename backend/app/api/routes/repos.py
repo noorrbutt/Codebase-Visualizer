@@ -658,7 +658,11 @@ async def _auto_analyze_top_files(repo_id: int) -> None:
 
 
 def _persist_repo_analysis_files(
-    repo_id: int, node_records: list[FileNode], edges: list[FileEdge]
+    repo_id: int,
+    node_records: list[FileNode],
+    edges: list[FileEdge],
+    discovered_files: int | None = None,
+    truncated: bool = False,
 ) -> bool:
     db = SessionLocal()
     try:
@@ -708,6 +712,8 @@ def _persist_repo_analysis_files(
         db.add_all(edge_records)
 
         repo.total_files = len(node_records)
+        repo.discovered_files = discovered_files
+        repo.truncated = truncated
         repo.status = "parsing"
         db.commit()
         return True
@@ -810,6 +816,9 @@ def _get_fresh_repo_analysis(repo_key: str, force: bool) -> dict | None:
             "owner": repo.owner,
             "default_branch": repo.default_branch,
             "summary": repo.summary,
+            "total_files": repo.total_files,
+            "discovered_files": repo.discovered_files,
+            "truncated": repo.truncated,
         }
     finally:
         db.close()
@@ -864,9 +873,15 @@ async def _build_repo_analysis(
             github_service.get_file_tree, owner, repo_name, commit_sha
         )
         file_paths = [item["path"] for item in tree_items]
+        discovered_files = getattr(tree_items, "discovered_files", len(tree_items))
+        tree_truncated = getattr(tree_items, "truncated", False)
         if not file_paths:
             extension_counts = sorted(
-                github_service.dropped_file_extension_counts.items(),
+                getattr(
+                    tree_items,
+                    "dropped_file_extension_counts",
+                    github_service.dropped_file_extension_counts,
+                ).items(),
                 key=lambda item: (-item[1], item[0]),
             )[:3]
             found = ", ".join(
@@ -925,7 +940,12 @@ async def _build_repo_analysis(
             _fetch_manifest_excerpt, owner, repo_name, commit_sha
         )
         persisted = await asyncio.to_thread(
-            _persist_repo_analysis_files, repo_id, node_records, edges
+            _persist_repo_analysis_files,
+            repo_id,
+            node_records,
+            edges,
+            discovered_files,
+            tree_truncated,
         )
         if not persisted:
             return
@@ -1158,6 +1178,9 @@ async def analyze_repo(
             default_branch=branch,
             status="parsing",
             summary=None,
+            total_files=0,
+            discovered_files=None,
+            truncated=False,
             nodes=[],
             edges=[],
         )
@@ -1235,6 +1258,9 @@ def get_repo_by_name(owner: str, repo: str, db: Session = Depends(get_db)) -> An
         default_branch=record.default_branch,
         status=record.status,
         summary=record.summary,
+        total_files=record.total_files,
+        discovered_files=record.discovered_files,
+        truncated=record.truncated,
         nodes=node_records,
         edges=edges,
         metrics=compute_graph_metrics(
@@ -1261,6 +1287,9 @@ def get_repo(repo_id: int, db: Session = Depends(get_db)) -> AnalyzeResponse:
         default_branch=repo.default_branch,
         status=repo.status,
         summary=repo.summary,
+        total_files=repo.total_files,
+        discovered_files=repo.discovered_files,
+        truncated=repo.truncated,
         nodes=node_records,
         edges=edges,
         metrics=compute_graph_metrics(

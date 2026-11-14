@@ -82,13 +82,55 @@ def test_get_file_tree_filters_and_caps_results(monkeypatch):
 
     files = service.get_file_tree("octocat", "hello-world", "main")
 
-    assert files[0]["path"] == "src/app.py"
+    assert files[0]["path"] == "src/__init__.py"
+    assert any(item["path"] == "src/app.py" for item in files)
     assert any(item["path"] == "src/__init__.py" for item in files)
     assert all(item["path"] != "src/empty/__init__.py" for item in files)
     assert all(item["path"] != "src/manage.py" for item in files)
     assert len(files) == 300
     assert service.dropped_file_extension_counts[".java"] == 1
     assert service.dropped_file_extension_counts[".xml"] == 1
+
+
+def test_get_file_tree_excludes_top_level_directories_and_ranks_before_cap(monkeypatch):
+    service = GithubService()
+    payload = {
+        "truncated": True,
+        "tree": [
+            {"type": "blob", "path": "docs/doc.py", "size": 10},
+            {"type": "blob", "path": "static/app.js", "size": 10},
+            {"type": "blob", "path": "migrations/old.py", "size": 10},
+            {"type": "blob", "path": "src/app.min.js", "size": 10},
+            {"type": "blob", "path": "src/types.d.ts", "size": 10},
+            {"type": "blob", "path": "src/a.py", "size": 10},
+        ]
+        + [
+            {"type": "blob", "path": f"src/file_{index:03d}.py", "size": 10}
+            for index in range(249)
+        ]
+        + [
+            {"type": "blob", "path": f"tests/test_{index:03d}.py", "size": 10}
+            for index in range(150)
+        ],
+    }
+
+    monkeypatch.setattr(
+        "app.services.github.requests.get",
+        lambda *args, **kwargs: DummyResponse(200, payload),
+    )
+
+    files = service.get_file_tree("octocat", "hello-world", "main")
+    paths = [item["path"] for item in files]
+
+    assert len(files) == 300
+    assert files.discovered_files == 400
+    assert files.truncated is True
+    assert "src/a.py" in paths
+    assert not any(path.startswith(("docs/", "static/", "migrations/")) for path in paths)
+    assert not any(path.endswith((".min.js", ".d.ts")) for path in paths)
+    assert paths.index("src/a.py") < paths.index("tests/test_000.py")
+    assert all(path.startswith("src/") for path in paths[:250])
+    assert paths[250].startswith("tests/")
 
 
 def test_get_file_content_returns_raw_text(monkeypatch):

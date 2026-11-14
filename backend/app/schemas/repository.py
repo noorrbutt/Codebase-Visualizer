@@ -52,9 +52,12 @@ class AnalyzeResponse(BaseModel):
     default_branch: str
     status: str
     summary: str | None
+    total_files: int
     nodes: list[FileNodeOut]
     edges: list[FileEdge]
     metrics: GraphMetrics | None = None
+    discovered_files: int | None = None
+    truncated: bool = False
 
     model_config = ConfigDict(from_attributes=True)
 

@@ -392,6 +392,31 @@ export default function DashboardPage({ data, onReset }) {
         </a>
       </header>
 
+      {(data.discovered_files > data.total_files || data.truncated) && (
+        <div
+          role="status"
+          style={{
+            padding: "9px 1.25rem",
+            background: "var(--warning-bg)",
+            borderBottom: "1px solid var(--warning-border)",
+            color: "var(--warning-fg)",
+            fontFamily: "'DM Sans', sans-serif",
+            fontSize: 12,
+            flexShrink: 0,
+          }}
+        >
+          {data.discovered_files > data.total_files && (
+            <div>
+              Showing {data.total_files.toLocaleString()} of{" "}
+              {data.discovered_files.toLocaleString()} files
+            </div>
+          )}
+          {data.truncated && (
+            <div>GitHub truncated the repository tree; discovered counts may be incomplete.</div>
+          )}
+        </div>
+      )}
+
       {/* ── AI Summary ── */}
       {data.summary && (
         <div

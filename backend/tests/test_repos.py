@@ -1110,6 +1110,9 @@ def test_build_repo_analysis_marks_ready_when_ai_summary_fails(client, monkeypat
         assert repo is not None
         assert repo.status == "ready"
         assert repo.commit_sha == commit_sha
+        assert repo.total_files == 1
+        assert repo.discovered_files == 1
+        assert repo.truncated is False
         assert repo.stage is None
         assert repo.summary is None
         assert repo.locked_at is None

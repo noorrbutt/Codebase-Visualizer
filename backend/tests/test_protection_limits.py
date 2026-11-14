@@ -125,7 +125,7 @@ def test_github_service_caps_large_file_tree(monkeypatch):
 
     assert len(capped_files) == 300
     assert capped_files[0]["path"] == "src/file_0.py"
-    assert capped_files[-1]["path"] == "src/file_299.py"
+    assert capped_files.discovered_files == 350
 
 
 def test_rate_limiter_allows_exact_limit_and_rejects_next(monkeypatch):

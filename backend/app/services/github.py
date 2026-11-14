@@ -29,6 +29,31 @@ _OWNER_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$")
 _REPO_RE = re.compile(r"^[A-Za-z0-9._-]{1,100}$")
 _BRANCH_RE = re.compile(r"^[A-Za-z0-9_.\-/]+$")
 _COMMIT_SHA_RE = re.compile(r"^[0-9a-fA-F]{40}$")
+_EXCLUDED_DIRECTORIES = {
+    "docs",
+    "static",
+    "migrations",
+    "node_modules",
+    "vendor",
+    "dist",
+    "build",
+    ".github",
+    "third_party",
+}
+
+
+class FileTreeResult(list[dict]):
+    def __init__(
+        self,
+        files: list[dict],
+        discovered_files: int,
+        truncated: bool,
+        dropped_file_extension_counts: dict[str, int],
+    ) -> None:
+        super().__init__(files)
+        self.discovered_files = discovered_files
+        self.truncated = truncated
+        self.dropped_file_extension_counts = dropped_file_extension_counts
 
 
 class GithubService:
@@ -190,7 +215,7 @@ class GithubService:
         response.raise_for_status()
         return response.json()["sha"]
 
-    def get_file_tree(self, owner: str, repo: str, ref: str) -> list[dict]:
+    def get_file_tree(self, owner: str, repo: str, ref: str) -> FileTreeResult:
         self.dropped_file_extension_counts = {}
         self._validate_branch(ref)
 
@@ -209,7 +234,11 @@ class GithubService:
 
         response.raise_for_status()
 
-        tree = response.json().get("tree", [])
+        payload = response.json()
+        tree = payload.get("tree", [])
+        github_truncated = bool(payload.get("truncated", False))
+        if github_truncated:
+            logger.warning("GitHub truncated the repository tree for {}/{}", owner, repo)
         filtered: list[dict] = []
         dropped_extensions: dict[str, int] = {}
 
@@ -236,17 +265,17 @@ class GithubService:
                 record_dropped_extension(path)
                 continue
 
-            path_lower = path.lower()
-            if (
-                "/migrations/" in path_lower
-                or "/static/" in path_lower
-                or "/docs/" in path_lower
-                or "/.github/" in path_lower
-            ):
+            path_parts = path.split("/")
+            directory_parts = [part.lower() for part in path_parts[:-1]]
+            if any(part in _EXCLUDED_DIRECTORIES for part in directory_parts):
                 record_dropped_extension(path)
                 continue
 
-            basename = path_lower.rsplit("/", 1)[-1]
+            basename = path_parts[-1].lower()
+            if basename.endswith((".min.js", ".d.ts")):
+                record_dropped_extension(path)
+                continue
+
             if basename == "manage.py":
                 record_dropped_extension(path)
                 continue
@@ -261,14 +290,43 @@ class GithubService:
 
             filtered.append(item)
 
-        logger.info("Filtered GitHub tree to {} supported files", len(filtered))
+        def is_test_file(item: dict) -> bool:
+            path_parts = item["path"].lower().split("/")
+            basename = path_parts[-1]
+            return (
+                any(part in {"test", "tests", "__tests__"} for part in path_parts[:-1])
+                or basename.startswith("test_")
+                or ".test." in basename
+                or ".spec." in basename
+                or basename.endswith("_test.py")
+            )
+
+        filtered.sort(
+            key=lambda item: (
+                is_test_file(item),
+                len(item["path"].split("/")),
+                item["path"].lower(),
+            )
+        )
+        discovered_files = len(filtered)
+        logger.info("Filtered GitHub tree to {} supported files", discovered_files)
         capped = filtered[: settings.MAX_REPO_FILES]
-        for item in filtered[settings.MAX_REPO_FILES :]:
+        capped_files = filtered[settings.MAX_REPO_FILES :]
+        for item in capped_files:
             record_dropped_extension(item["path"])
         self.dropped_file_extension_counts = dropped_extensions
-        if len(filtered) > settings.MAX_REPO_FILES:
-            logger.warning("Capping repository analysis to {} files from {} discovered files", len(capped), len(filtered))
-        return capped
+        if capped_files:
+            logger.warning(
+                "Capping repository analysis to {} files from {} discovered files",
+                len(capped),
+                discovered_files,
+            )
+        return FileTreeResult(
+            capped,
+            discovered_files=discovered_files,
+            truncated=github_truncated,
+            dropped_file_extension_counts=dropped_extensions,
+        )
 
     def get_file_content(self, owner: str, repo: str, ref: str, path: str) -> str:
         self._validate_branch(ref)

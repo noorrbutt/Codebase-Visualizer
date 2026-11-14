@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import Column, DateTime, Integer, String, Text, func
+from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text, false, func
 
 from app.database import Base
 
@@ -15,6 +15,8 @@ class Repository(Base):
     default_branch = Column(String, nullable=False, server_default="main")
     commit_sha = Column(String, nullable=True)
     total_files = Column(Integer, nullable=False, default=0)
+    discovered_files = Column(Integer, nullable=True)
+    truncated = Column(Boolean, nullable=False, default=False, server_default=false())
     summary = Column(Text, nullable=True)
     status = Column(String, nullable=False, default="parsing")
     stage = Column(String, nullable=True)
