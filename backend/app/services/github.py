@@ -31,6 +31,9 @@ _COMMIT_SHA_RE = re.compile(r"^[0-9a-fA-F]{40}$")
 
 
 class GithubService:
+    def __init__(self) -> None:
+        self.dropped_file_extension_counts: dict[str, int] = {}
+
     def _sleep_before_retry(self, attempt: int) -> None:
         delay = _RETRY_BASE_DELAY_SECONDS * (2 ** (attempt - 1))
         logger.warning("Transient GitHub failure, retrying in {} seconds (attempt {}/{})", delay, attempt + 1, _RETRY_ATTEMPTS)
@@ -187,6 +190,7 @@ class GithubService:
         return response.json()["sha"]
 
     def get_file_tree(self, owner: str, repo: str, ref: str) -> list[dict]:
+        self.dropped_file_extension_counts = {}
         self._validate_branch(ref)
 
         url = f"https://api.github.com/repos/{owner}/{repo}/git/trees/{ref}?recursive=1"
@@ -206,6 +210,16 @@ class GithubService:
 
         tree = response.json().get("tree", [])
         filtered: list[dict] = []
+        dropped_extensions: dict[str, int] = {}
+
+        def record_dropped_extension(path: str) -> None:
+            basename = path.rsplit("/", 1)[-1]
+            extension = (
+                "." + basename.rsplit(".", 1)[-1].lower()
+                if "." in basename
+                else "(no extension)"
+            )
+            dropped_extensions[extension] = dropped_extensions.get(extension, 0) + 1
 
         for item in tree:
             if item.get("type") != "blob":
@@ -215,8 +229,10 @@ class GithubService:
             if not path:
                 continue
 
-            extension = "." + path.rsplit(".", 1)[-1].lower() if "." in path else ""
+            basename = path.rsplit("/", 1)[-1]
+            extension = "." + basename.rsplit(".", 1)[-1].lower() if "." in basename else ""
             if extension not in SUPPORTED_EXTENSIONS:
+                record_dropped_extension(path)
                 continue
 
             path_lower = path.lower()
@@ -226,22 +242,29 @@ class GithubService:
                 or "/docs/" in path_lower
                 or "/.github/" in path_lower
             ):
+                record_dropped_extension(path)
                 continue
 
             basename = path_lower.rsplit("/", 1)[-1]
             if basename == "manage.py":
+                record_dropped_extension(path)
                 continue
 
             size = item.get("size")
             if size is None or size > MAX_FILE_SIZE_BYTES:
+                record_dropped_extension(path)
                 continue
             if basename == "__init__.py" and size == 0:
+                record_dropped_extension(path)
                 continue
 
             filtered.append(item)
 
         logger.info("Filtered GitHub tree to {} supported files", len(filtered))
         capped = filtered[: settings.MAX_REPO_FILES]
+        for item in filtered[settings.MAX_REPO_FILES :]:
+            record_dropped_extension(item["path"])
+        self.dropped_file_extension_counts = dropped_extensions
         if len(filtered) > settings.MAX_REPO_FILES:
             logger.warning("Capping repository analysis to {} files from {} discovered files", len(capped), len(filtered))
         return capped

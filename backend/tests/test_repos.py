@@ -1117,6 +1117,75 @@ def test_build_repo_analysis_marks_ready_when_ai_summary_fails(client, monkeypat
     assert observed_stages == ["fetching", "fetching", "parsing", "summarizing"]
 
 
+def test_build_repo_analysis_fails_without_supported_files(client, monkeypatch):
+    repo_key = "https://github.com/octocat/empty"
+    with database_module.SessionLocal() as db:
+        repo = Repository(
+            owner="octocat",
+            repo_name="empty",
+            github_url=repo_key,
+            default_branch="main",
+            status="parsing",
+            locked_at=datetime.now(timezone.utc),
+            worker_id="worker-1",
+        )
+        db.add(repo)
+        db.commit()
+        repo_id = repo.id
+
+    ai_calls = []
+    fetch_calls = []
+    monkeypatch.setattr(
+        repos_module, "_get_or_store_repo_commit_sha", lambda *args: "commit-sha"
+    )
+    monkeypatch.setattr(repos_module.github_service, "get_file_tree", lambda *args: [])
+    monkeypatch.setattr(
+        repos_module.github_service,
+        "dropped_file_extension_counts",
+        {".java": 212, ".xml": 40, ".json": 7, ".txt": 3},
+    )
+    monkeypatch.setattr(
+        repos_module.github_service,
+        "fetch_files_concurrent",
+        lambda *args: fetch_calls.append(args),
+    )
+    monkeypatch.setattr(
+        repos_module.ai_service,
+        "generate_repo_summary",
+        lambda *args, **kwargs: ai_calls.append(args),
+    )
+
+    asyncio.run(
+        repos_module._build_repo_analysis(
+            repo_id,
+            "octocat",
+            "empty",
+            repo_key,
+            "main",
+        )
+    )
+
+    with database_module.SessionLocal() as db:
+        repo = db.get(Repository, repo_id)
+        assert repo is not None
+        assert repo.status == "failed"
+        assert repo.error_message is not None
+        assert "No supported" in repo.error_message
+        assert "212 .java" in repo.error_message
+        assert "40 .xml" in repo.error_message
+        assert ".txt" not in repo.error_message
+        assert repo.locked_at is None
+        assert repo.worker_id is None
+
+    status_response = client.get(
+        f"/repos/{repo_id}/status", headers={"X-API-Key": "test-api-key"}
+    )
+    assert status_response.status_code == 200
+    assert "No supported" in status_response.json()["error"]
+    assert not ai_calls
+    assert not fetch_calls
+
+
 def test_fetch_manifest_excerpt_skips_missing_manifests(client, monkeypatch):
     missing_response = requests.Response()
     missing_response.status_code = 404

@@ -72,6 +72,8 @@ def test_get_file_tree_filters_and_caps_results(monkeypatch):
             {"type": "blob", "path": "src/manage.py", "size": 10},
             {"type": "blob", "path": "docs/readme.md", "size": 10},
             {"type": "blob", "path": "src/large.py", "size": 200_000},
+            {"type": "blob", "path": "src/Legacy.java", "size": 10},
+            {"type": "blob", "path": "config/settings.xml", "size": 10},
         ]
         + [{"type": "blob", "path": f"src/file_{index}.py", "size": 10} for index in range(350)]
     }
@@ -85,6 +87,8 @@ def test_get_file_tree_filters_and_caps_results(monkeypatch):
     assert all(item["path"] != "src/empty/__init__.py" for item in files)
     assert all(item["path"] != "src/manage.py" for item in files)
     assert len(files) == 300
+    assert service.dropped_file_extension_counts[".java"] == 1
+    assert service.dropped_file_extension_counts[".xml"] == 1
 
 
 def test_get_file_content_returns_raw_text(monkeypatch):

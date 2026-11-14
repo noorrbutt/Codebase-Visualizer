@@ -864,6 +864,22 @@ async def _build_repo_analysis(
             github_service.get_file_tree, owner, repo_name, commit_sha
         )
         file_paths = [item["path"] for item in tree_items]
+        if not file_paths:
+            extension_counts = sorted(
+                github_service.dropped_file_extension_counts.items(),
+                key=lambda item: (-item[1], item[0]),
+            )[:3]
+            found = ", ".join(
+                f"{count} {extension}" for extension, count in extension_counts
+            ) or "no files with identifiable extensions"
+            await asyncio.to_thread(
+                _mark_repo_analysis_failed,
+                repo_id,
+                f"No supported source files. Found: {found}. "
+                "Supported: Python, JS/TS, HTML/CSS.",
+            )
+            return
+
         contents = await asyncio.to_thread(
             github_service.fetch_files_concurrent, owner, repo_name, commit_sha, file_paths
         )

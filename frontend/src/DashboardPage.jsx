@@ -459,7 +459,9 @@ export default function DashboardPage({ data, onReset }) {
             <StatCard
               label="Connected files"
               value={connectedCount.toLocaleString()}
-              sub={`${Math.round((connectedCount / data.nodes.length) * 100)}% of codebase`}
+              sub={data.nodes.length
+                ? `${Math.round((connectedCount / data.nodes.length) * 100)}% of codebase`
+                : "0% of codebase"}
               icon={ICONS.link}
               tint={{ bg: "var(--card-green-bg)", fg: "var(--card-green-fg)" }}
             />
