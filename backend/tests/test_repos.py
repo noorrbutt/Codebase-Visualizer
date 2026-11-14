@@ -728,6 +728,56 @@ def test_analyze_rejects_duplicate_in_progress_request_for_same_repo(client, mon
     assert second_response.json()["detail"] == "Repository analysis is already in progress"
 
 
+def test_analyze_reclaims_stale_parsing_repo(client, monkeypatch):
+    repo_key = "https://github.com/octocat/hello-world"
+    with database_module.SessionLocal() as db:
+        db.add(
+            Repository(
+                github_url=repo_key,
+                repo_name="hello-world",
+                owner="octocat",
+                default_branch="main",
+                status="parsing",
+                commit_sha="old-sha",
+                stage="fetching",
+                error_message="previous failure",
+                locked_at=datetime.now(timezone.utc)
+                - timedelta(seconds=repos_module.settings.ANALYSIS_TIMEOUT_SECONDS + 31),
+                worker_id="old-worker",
+            )
+        )
+        db.commit()
+
+    monkeypatch.setattr(
+        repos_module.github_service, "parse_repo_url", lambda url: ("octocat", "hello-world")
+    )
+    monkeypatch.setattr(
+        repos_module.github_service,
+        "get_repo_metadata",
+        lambda owner, repo: {"default_branch": "main"},
+    )
+    monkeypatch.setattr(repos_module.repo_rate_limiter, "allow", lambda ip: True)
+    monkeypatch.setattr(
+        repos_module, "_build_repo_analysis_with_timeout", lambda *args, **kwargs: None
+    )
+
+    response = client.post(
+        "/repos/analyze",
+        json={"github_url": repo_key},
+        headers={"X-API-Key": "test-api-key"},
+    )
+
+    assert response.status_code == 200
+    with database_module.SessionLocal() as db:
+        repo = db.query(Repository).filter(Repository.github_url == repo_key).first()
+        assert repo is not None
+        assert repo.commit_sha is None
+        assert repo.stage is None
+        assert repo.error_message is None
+        assert repo.locked_at is not None
+        assert repo.worker_id != "old-worker"
+
+
 def test_concurrent_analyze_requests_one_succeeds(client, monkeypatch):
     monkeypatch.setattr(
         repos_module.github_service, "parse_repo_url", lambda url: ("octocat", "hello-world")
@@ -1511,7 +1561,7 @@ def test_deleting_repository_cascades_to_related_rows(client):
         assert db.query(FileEdge).filter(FileEdge.repo_id == repo_id).count() == 0
 
 
-def test_resume_pending_repo_analyses_claims_and_skips(tmp_path, monkeypatch):
+def test_resume_pending_repo_analyses_reclaims_recent_and_stale_rows(tmp_path, monkeypatch):
     db_path = tmp_path / "pending2.db"
     engine = create_engine(f"sqlite:///{db_path}", connect_args={"check_same_thread": False})
     test_session_local = sessionmaker(
@@ -1526,7 +1576,7 @@ def test_resume_pending_repo_analyses_claims_and_skips(tmp_path, monkeypatch):
 
     with test_session_local() as db:
         stale_time = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=1000)
-        fresh_time = datetime.now(timezone.utc).replace(tzinfo=None)
+        recent_time = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=60)
 
         # stale locked repo should be reclaimed
         db.add(
@@ -1542,16 +1592,19 @@ def test_resume_pending_repo_analyses_claims_and_skips(tmp_path, monkeypatch):
             )
         )
 
-        # fresh locked repo should be skipped
+        # A recently locked row is reclaimed after a process restart too.
         db.add(
             Repository(
-                github_url="https://github.com/octocat/fresh",
-                repo_name="fresh",
+                github_url="https://github.com/octocat/recent",
+                repo_name="recent",
                 owner="octocat",
                 default_branch="main",
                 total_files=0,
                 status="parsing",
-                locked_at=fresh_time,
+                commit_sha="old-sha",
+                stage="fetching",
+                error_message="old error",
+                locked_at=recent_time,
                 worker_id="other",
             )
         )
@@ -1567,11 +1620,6 @@ def test_resume_pending_repo_analyses_claims_and_skips(tmp_path, monkeypatch):
 
     monkeypatch.setattr(repos_module.asyncio, "get_running_loop", lambda: FakeTaskLoop())
 
-    # ensure reclaim threshold small for test
-    monkeypatch.setattr(
-        repos_module, "settings", repos_module.settings.__class__(RECLAIM_LOCK_AFTER_SECONDS=60)
-    )
-
     import asyncio
 
     # Ensure the startup mutex allows reclaim to proceed
@@ -1579,8 +1627,15 @@ def test_resume_pending_repo_analyses_claims_and_skips(tmp_path, monkeypatch):
 
     asyncio.run(repos_module.resume_pending_repo_analyses())
 
-    # only the stale record should have been scheduled
-    assert len(scheduled) == 1
+    assert len(scheduled) == 2
+    with test_session_local() as db:
+        repo = db.query(Repository).filter(Repository.repo_name == "recent").first()
+        assert repo is not None
+        assert repo.locked_at is not None
+        assert repo.worker_id != "other"
+        assert repo.commit_sha is None
+        assert repo.stage is None
+        assert repo.error_message is None
 
 
 def test_startup_reclaim_lock_skips_second_call(tmp_path, monkeypatch):

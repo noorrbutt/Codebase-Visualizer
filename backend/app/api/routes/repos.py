@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 
 import requests
@@ -86,6 +86,18 @@ def _clear_repo_lock(repo: Repository | None) -> None:
         return
     repo.locked_at = None
     repo.worker_id = None
+
+
+def _is_stale(repo: Repository) -> bool:
+    if repo.locked_at is None:
+        return True
+
+    locked_at = repo.locked_at
+    if locked_at.tzinfo is None:
+        locked_at = locked_at.replace(tzinfo=timezone.utc)
+    stale_after = settings.ANALYSIS_TIMEOUT_SECONDS + 30
+    age_seconds = (datetime.now(timezone.utc) - locked_at).total_seconds()
+    return age_seconds > stale_after
 
 
 def _normalize_path_key(file_path: str) -> str:
@@ -712,13 +724,13 @@ def _create_repo_analysis_record(
     db = SessionLocal()
     try:
         existing = db.query(Repository).filter(Repository.github_url == repo_key).first()
-        if existing and existing.status == "parsing":
+        if existing and existing.status == "parsing" and not _is_stale(existing):
             raise HTTPException(
                 status_code=409, detail="Repository analysis is already in progress"
             )
 
         requery = db.query(Repository).filter(Repository.github_url == repo_key).first()
-        if requery and requery.status == "parsing":
+        if requery and requery.status == "parsing" and not _is_stale(requery):
             raise HTTPException(
                 status_code=409, detail="Repository analysis is already in progress"
             )
@@ -774,7 +786,7 @@ def _get_fresh_repo_analysis(repo_key: str, force: bool) -> dict | None:
         repo = db.query(Repository).filter(Repository.github_url == repo_key).first()
         if repo is None:
             return None
-        if repo.status == "parsing":
+        if repo.status == "parsing" and not _is_stale(repo):
             raise HTTPException(
                 status_code=409, detail="Repository analysis is already in progress"
             )
@@ -999,15 +1011,19 @@ async def resume_pending_repo_analyses() -> None:
         reclaimed = 0
         skipped = 0
         worker_id = uuid.uuid4().hex
-        cutoff = datetime.now(timezone.utc) - timedelta(seconds=settings.RECLAIM_LOCK_AFTER_SECONDS)
 
         for repo in pending_repos:
             rows = (
                 db.query(Repository)
                 .filter(Repository.id == repo.id, Repository.status == "parsing")
-                .filter((Repository.locked_at.is_(None)) | (Repository.locked_at < cutoff))
                 .update(
-                    {Repository.locked_at: datetime.now(timezone.utc), Repository.worker_id: worker_id},
+                    {
+                        Repository.locked_at: datetime.now(timezone.utc),
+                        Repository.worker_id: worker_id,
+                        Repository.commit_sha: None,
+                        Repository.stage: None,
+                        Repository.error_message: None,
+                    },
                     synchronize_session=False,
                 )
             )
