@@ -25,7 +25,8 @@ DEFAULT_MAX_REPO_FILES = 300
 _RETRY_ATTEMPTS = 3
 _RETRY_BASE_DELAY_SECONDS = 1.0
 _TRANSIENT_STATUS_CODES = {500, 502, 503, 504}
-_NAME_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
+_OWNER_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$")
+_REPO_RE = re.compile(r"^[A-Za-z0-9._-]{1,100}$")
 _BRANCH_RE = re.compile(r"^[A-Za-z0-9_.\-/]+$")
 _COMMIT_SHA_RE = re.compile(r"^[0-9a-fA-F]{40}$")
 
@@ -326,14 +327,21 @@ class GithubService:
         if len(parts) < 2:
             raise RepoParseError("URL must include owner and repository name")
 
-        owner = parts[0]
-        repo = parts[1]
+        owner = urllib.parse.unquote(parts[0])
+        repo = urllib.parse.unquote(parts[1])
         if repo.lower().endswith(".git"):
             repo = repo[:-4]
         if not owner or not repo:
             raise RepoParseError("URL must include owner and repository name")
 
-        if not _NAME_RE.fullmatch(owner) or not _NAME_RE.fullmatch(repo):
-            raise RepoParseError("owner and repository names may only contain letters, numbers, underscore, dot, or hyphen")
+        if (
+            owner in {".", ".."}
+            or repo in {".", ".."}
+            or owner.startswith(".")
+            or repo.startswith(".")
+            or not _OWNER_RE.fullmatch(owner)
+            or not _REPO_RE.fullmatch(repo)
+        ):
+            raise RepoParseError("invalid GitHub owner or repository name")
 
         return owner, repo

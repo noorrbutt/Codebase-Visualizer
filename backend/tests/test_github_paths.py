@@ -120,3 +120,30 @@ def test_parse_repo_url_accepts_repository_url_variants(url):
     svc = GithubService()
 
     assert svc.parse_repo_url(url) == ("Owner", "Repo")
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://github.com/../user",
+        "https://github.com/./user",
+        "https://github.com/%2e%2e/user",
+        "https://github.com/.hidden/repo",
+        "https://github.com/a/..",
+        "",
+    ],
+)
+def test_parse_repo_url_rejects_dot_segments_and_empty_url(url):
+    with pytest.raises(RepoParseError):
+        GithubService().parse_repo_url(url)
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        ("https://github.com/pallets/flask", ("pallets", "flask")),
+        ("https://github.com/octocat/Hello-World.git", ("octocat", "Hello-World")),
+    ],
+)
+def test_parse_repo_url_accepts_valid_github_names(url, expected):
+    assert GithubService().parse_repo_url(url) == expected
