@@ -18,6 +18,38 @@ def test_parse_python_imports():
     assert "os" not in result["imports"]
 
 
+def test_parse_multiline_python_from_imports_includes_submodules():
+    imports = CodeParser().parse(
+        "main.py",
+        "from app.services import (\n    ai,\n    github,\n)\n",
+    )["imports"]
+
+    assert imports == [
+        "app.services",
+        "app.services.ai",
+        "app.services.github",
+    ]
+
+
+def test_parse_python_ignores_imports_in_docstrings_and_comments():
+    imports = CodeParser().parse(
+        "main.py",
+        '"""import fake_module\nfrom fake_package import fake_submodule"""\n'
+        "# import also_fake\nimport real_module\n",
+    )["imports"]
+
+    assert imports == ["real_module"]
+
+
+def test_parse_python_relative_from_import_keeps_leading_dots():
+    imports = CodeParser().parse(
+        "main.py",
+        "from . import sibling\nfrom ..package import module\n",
+    )["imports"]
+
+    assert imports == [".", ".sibling", "..package", "..package.module"]
+
+
 def test_parse_js_imports():
     parser = CodeParser()
     result = parser.parse(
@@ -28,6 +60,18 @@ def test_parse_js_imports():
     assert result["language"] == "javascript"
     assert "react" in result["imports"]
     assert "./App" in result["imports"]
+
+
+def test_parse_js_dynamic_import_and_ignores_comment_imports():
+    imports = CodeParser().parse(
+        "src/App.jsx",
+        "// import('./commented-out')\n"
+        "/* import('./also-commented') */\n"
+        'const url = "https://example.com/a//b";\n'
+        "const page = import('./Page');\n",
+    )["imports"]
+
+    assert imports == ["./Page"]
 
 
 def test_parse_relative_import_resolution():
