@@ -4,10 +4,10 @@ import asyncio
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlalchemy.orm import Session
+import requests
 
 from app.api.dependencies import _require_api_key
-from app.database import get_db
+from app.database import SessionLocal
 from app.exceptions import AIBudgetExceededError, AIServiceError
 from app.config import settings
 from app.logging import get_logger
@@ -28,32 +28,105 @@ file_rate_limiter = IPRateLimiter(
 )
 
 
-@router.post(
-    "/analyze", response_model=FileAnalyzeResponse, dependencies=[Depends(_require_api_key)]
-)
-async def analyze_file(
-    payload: FileAnalyzeRequest,
-    db: Session = Depends(get_db),
-    request: Request = None,
-) -> FileAnalyzeResponse:
-    client_ip = IPRateLimiter.resolve_client_ip(request)
-    if not await asyncio.to_thread(file_rate_limiter.allow, client_ip):
-        raise HTTPException(status_code=429, detail="Rate limit exceeded for file analysis")
-    node = (
-        db.query(FileNode)
-        .filter(FileNode.repo_id == payload.repo_id, FileNode.file_path == payload.file_path)
-        .first()
-    )
-    if node is None:
-        raise HTTPException(status_code=404, detail="File node not found")
+class _FileAnalysisContext:
+    def __init__(
+        self,
+        owner: str,
+        repo_name: str,
+        ref: str,
+        file_path: str,
+        github_url: str,
+    ) -> None:
+        self.owner = owner
+        self.repo_name = repo_name
+        self.ref = ref
+        self.file_path = file_path
+        self.github_url = github_url
 
-    if (
-        node.analyzed_at is not None
-        and node.ai_summary is not None
-        and node.ai_summary_detail is not None
-        and node.ai_complexity is not None
-        and node.ai_role is not None
-    ):
+
+def _load_file_analysis(
+    repo_id: int, file_path: str
+) -> tuple[FileAnalyzeResponse | None, _FileAnalysisContext | None]:
+    with SessionLocal() as db:
+        node = (
+            db.query(FileNode)
+            .filter(FileNode.repo_id == repo_id, FileNode.file_path == file_path)
+            .first()
+        )
+        if node is None:
+            raise HTTPException(status_code=404, detail="File node not found")
+
+        if (
+            node.analyzed_at is not None
+            and node.ai_summary is not None
+            and node.ai_summary_detail is not None
+            and node.ai_complexity is not None
+            and node.ai_role is not None
+        ):
+            return (
+                FileAnalyzeResponse(
+                    file_path=node.file_path,
+                    ai_summary=node.ai_summary,
+                    ai_summary_detail=node.ai_summary_detail,
+                    ai_complexity=node.ai_complexity,
+                    ai_role=node.ai_role,
+                ),
+                None,
+            )
+
+        repo = db.query(Repository).filter(Repository.id == repo_id).first()
+        if repo is None:
+            raise HTTPException(status_code=404, detail="Repository not found")
+
+        return (
+            None,
+            _FileAnalysisContext(
+                owner=repo.owner,
+                repo_name=repo.repo_name,
+                ref=repo.commit_sha or repo.default_branch,
+                file_path=node.file_path,
+                github_url=repo.github_url,
+            ),
+        )
+
+
+def _save_file_analysis(
+    repo_id: int,
+    context: _FileAnalysisContext,
+    analysis: dict[str, str],
+) -> FileAnalyzeResponse:
+    with SessionLocal() as db:
+        try:
+            node = (
+                db.query(FileNode)
+                .filter(
+                    FileNode.repo_id == repo_id,
+                    FileNode.file_path == context.file_path,
+                )
+                .first()
+            )
+            if node is None:
+                raise HTTPException(status_code=404, detail="File node not found")
+
+            node.ai_summary = analysis["summary"]
+            node.ai_summary_detail = analysis["summary_detail"]
+            node.ai_complexity = analysis["complexity"]
+            node.ai_role = analysis["role"]
+            node.analyzed_at = datetime.now(timezone.utc).replace(tzinfo=None)
+            db.commit()
+        except HTTPException:
+            db.rollback()
+            raise
+        except Exception as exc:
+            db.rollback()
+            logger.error(
+                "Failed to update analysis for %s/%s: %s",
+                context.github_url,
+                context.file_path,
+                exc,
+            )
+            raise HTTPException(status_code=500, detail="Failed to persist file analysis")
+
         return FileAnalyzeResponse(
             file_path=node.file_path,
             ai_summary=node.ai_summary,
@@ -62,19 +135,42 @@ async def analyze_file(
             ai_role=node.ai_role,
         )
 
-    repo = db.query(Repository).filter(Repository.id == payload.repo_id).first()
-    if repo is None:
-        raise HTTPException(status_code=404, detail="Repository not found")
 
-    content = await asyncio.to_thread(
-        github_service.get_file_content,
-        repo.owner,
-        repo.repo_name,
-        repo.commit_sha or repo.default_branch,
-        node.file_path,
+@router.post(
+    "/analyze", response_model=FileAnalyzeResponse, dependencies=[Depends(_require_api_key)]
+)
+async def analyze_file(
+    payload: FileAnalyzeRequest,
+    request: Request = None,
+) -> FileAnalyzeResponse:
+    client_ip = IPRateLimiter.resolve_client_ip(request)
+    if not await asyncio.to_thread(file_rate_limiter.allow, client_ip):
+        raise HTTPException(status_code=429, detail="Rate limit exceeded for file analysis")
+    cached_response, context = await asyncio.to_thread(
+        _load_file_analysis, payload.repo_id, payload.file_path
     )
+    if cached_response is not None:
+        return cached_response
+    if context is None:
+        raise RuntimeError("File analysis context was not loaded")
+
     try:
-        analysis = await ai_service.analyze_file(node.file_path, content, client_ip=client_ip)
+        content = await asyncio.to_thread(
+            github_service.get_file_content,
+            context.owner,
+            context.repo_name,
+            context.ref,
+            context.file_path,
+        )
+    except requests.RequestException as exc:
+        if isinstance(exc, requests.HTTPError) and exc.response is not None and exc.response.status_code == 404:
+            raise HTTPException(status_code=404, detail="File not found") from exc
+        raise HTTPException(status_code=502, detail="Could not fetch file") from exc
+
+    try:
+        analysis = await ai_service.analyze_file(
+            context.file_path, content, client_ip=client_ip
+        )
     except AIBudgetExceededError:
         raise HTTPException(
             status_code=429,
@@ -83,31 +179,13 @@ async def analyze_file(
     except AIServiceError as exc:
         logger.warning(
             "AI analysis unavailable for client {} on {}/{}: {}",
-            client_ip, repo.github_url, node.file_path, exc,
+            client_ip, context.github_url, context.file_path, exc,
         )
         raise HTTPException(
             status_code=503,
             detail="AI analysis temporarily unavailable. Try again in a few seconds.",
         )
 
-    try:
-        node.ai_summary = analysis["summary"]
-        node.ai_summary_detail = analysis["summary_detail"]
-        node.ai_complexity = analysis["complexity"]
-        node.ai_role = analysis["role"]
-        node.analyzed_at = datetime.now(timezone.utc).replace(tzinfo=None)
-        db.commit()
-    except Exception as exc:
-        db.rollback()
-        logger.error(
-            "Failed to update analysis for %s/%s: %s", repo.github_url, node.file_path, exc
-        )
-        raise HTTPException(status_code=500, detail="Failed to persist file analysis")
-
-    return FileAnalyzeResponse(
-        file_path=node.file_path,
-        ai_summary=node.ai_summary,
-        ai_summary_detail=node.ai_summary_detail,
-        ai_complexity=node.ai_complexity,
-        ai_role=node.ai_role,
+    return await asyncio.to_thread(
+        _save_file_analysis, payload.repo_id, context, analysis
     )

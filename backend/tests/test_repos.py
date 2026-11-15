@@ -56,6 +56,7 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(database_module, "engine", engine)
     monkeypatch.setattr(database_module, "SessionLocal", test_session_local)
     monkeypatch.setattr(repos_module, "SessionLocal", test_session_local)
+    monkeypatch.setattr(files_module, "SessionLocal", test_session_local)
     monkeypatch.setattr(main_module, "create_tables", lambda: Base.metadata.create_all(bind=engine))
     monkeypatch.setattr(main_module.settings, "API_KEY", "test-api-key")
     monkeypatch.setattr(repos_module.settings, "API_KEY", "test-api-key")
@@ -1538,6 +1539,73 @@ def test_file_analysis_fetches_from_pinned_commit_or_legacy_branch(
 
     assert response.status_code == 200
     assert fetched_refs == [expected_ref]
+
+
+@pytest.mark.parametrize(
+    ("exception", "expected_status", "expected_detail"),
+    [
+        (
+            requests.HTTPError(
+                "missing",
+                response=requests.Response(),
+            ),
+            404,
+            "File not found",
+        ),
+        (
+            requests.ConnectionError("GitHub is unavailable"),
+            502,
+            "Could not fetch file",
+        ),
+    ],
+)
+def test_file_analysis_maps_github_fetch_errors(
+    client, monkeypatch, exception, expected_status, expected_detail
+):
+    with database_module.SessionLocal() as db:
+        repo = Repository(
+            owner="octocat",
+            repo_name="hello-world",
+            github_url="https://github.com/octocat/hello-world",
+            default_branch="main",
+            status="ready",
+        )
+        db.add(repo)
+        db.flush()
+        db.add(
+            FileNode(
+                repo_id=repo.id,
+                file_path="src/app.py",
+                language="python",
+                line_count=1,
+                import_count=0,
+            )
+        )
+        db.commit()
+        repo_id = repo.id
+
+    if isinstance(exception, requests.HTTPError):
+        exception.response.status_code = 404
+
+    def fail_fetch(*args):
+        raise exception
+
+    monkeypatch.setattr(files_module.file_rate_limiter, "allow", lambda ip: True)
+    monkeypatch.setattr(files_module.github_service, "get_file_content", fail_fetch)
+    monkeypatch.setattr(
+        files_module.ai_service,
+        "analyze_file",
+        lambda *args, **kwargs: pytest.fail("AI should not run when GitHub fetch fails"),
+    )
+
+    response = client.post(
+        "/files/analyze",
+        json={"repo_id": repo_id, "file_path": "src/app.py"},
+        headers={"X-API-Key": "test-api-key"},
+    )
+
+    assert response.status_code == expected_status
+    assert response.json()["detail"] == expected_detail
 
 
 def test_resolve_client_ip_ignores_spoofed_forwarded_header_by_default(monkeypatch):
