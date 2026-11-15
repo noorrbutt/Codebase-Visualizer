@@ -2,7 +2,14 @@ import { useRef, useEffect, useMemo, useState } from "react";
 import { useForceGraph } from "../../hooks/useForceGraph";
 import { getLangColor } from "../../utils/lang";
 
-export default function GraphView({ nodes, edges, selectedNode, onSelectNode }) {
+export default function GraphView({
+  nodes,
+  edges,
+  selectedNode,
+  onSelectNode,
+  initialSimulation,
+  onSimulationChange,
+}) {
   const canvasRef = useRef(null);
   const [hiddenLanguages, setHiddenLanguages] = useState(() => new Set());
   const [search, setSearch] = useState("");
@@ -32,6 +39,8 @@ export default function GraphView({ nodes, edges, selectedNode, onSelectNode }) 
     onWheel,
     onClick,
     centerNode,
+    draw,
+    getSimulation,
   } = useForceGraph(
     nodes,
     edges,
@@ -39,6 +48,17 @@ export default function GraphView({ nodes, edges, selectedNode, onSelectNode }) 
     selectedNode,
     onSelectNode,
     { visiblePaths, searchQuery: search, neighborhoodOnly },
+    initialSimulation,
+  );
+
+  const simulationGetterRef = useRef(getSimulation);
+  useEffect(() => {
+    simulationGetterRef.current = getSimulation;
+  }, [getSimulation]);
+
+  useEffect(
+    () => () => onSimulationChange(simulationGetterRef.current()),
+    [onSimulationChange],
   );
 
   useEffect(() => {
@@ -52,6 +72,7 @@ export default function GraphView({ nodes, edges, selectedNode, onSelectNode }) 
       if (canvas.width !== pixelWidth) canvas.width = pixelWidth;
       if (canvas.height !== pixelHeight) canvas.height = pixelHeight;
       canvas.getContext("2d").setTransform(dpr, 0, 0, dpr, 0, 0);
+      draw();
     };
     resize();
     const ro = new ResizeObserver(resize);
@@ -61,7 +82,7 @@ export default function GraphView({ nodes, edges, selectedNode, onSelectNode }) 
       ro.disconnect();
       window.removeEventListener("resize", resize);
     };
-  }, []);
+  }, [draw]);
 
   useEffect(() => {
     const canvas = canvasRef.current;

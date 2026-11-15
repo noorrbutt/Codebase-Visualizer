@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useCallback } from "react";
-import { getLangColor } from "../utils/lang";
+import { LANG_COLOR } from "../utils/lang";
 
 export function useForceGraph(
   nodes,
@@ -8,9 +8,22 @@ export function useForceGraph(
   selectedNode,
   onSelectNode,
   { visiblePaths, searchQuery, neighborhoodOnly },
+  initialSimulation,
 ) {
-  const simRef = useRef(null);
+  const simRef = useRef(initialSimulation?.nodes || null);
+  const simulationSignature = useMemo(
+    () => JSON.stringify({
+      nodes: nodes.map((node) => [node.id, node.path, node.import_count]),
+      edges: edges.map((edge) => [edge.source, edge.target]),
+    }),
+    [edges, nodes],
+  );
+  const previousSimulationSignatureRef = useRef(initialSimulation?.signature || null);
   const animRef = useRef(null);
+  const alphaRef = useRef(0);
+  const restartSimulationRef = useRef(null);
+  const filterSignatureRef = useRef(null);
+  const themeColorsRef = useRef({});
   const transformRef = useRef({ x: 0, y: 0, scale: 1 });
   const isDraggingRef = useRef(false);
   const dragStartRef = useRef(null);
@@ -44,6 +57,11 @@ export function useForceGraph(
     return viewRef.current.allowedPaths.has(path);
   }, []);
 
+  const getSimulation = useCallback(
+    () => ({ nodes: simRef.current, signature: simulationSignature }),
+    [simulationSignature],
+  );
+
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas || !simRef.current) return;
@@ -52,8 +70,7 @@ export function useForceGraph(
     const { x, y, scale } = transformRef.current;
     const w = canvas.clientWidth;
     const h = canvas.clientHeight;
-    const styles = getComputedStyle(document.documentElement);
-    const themeColor = (name) => styles.getPropertyValue(name).trim();
+    const themeColor = (name) => themeColorsRef.current[name];
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
     ctx.save();
@@ -108,7 +125,8 @@ export function useForceGraph(
 
       ctx.beginPath();
       ctx.arc(n.x, n.y, r / scale, 0, Math.PI * 2);
-      ctx.fillStyle = getLangColor(n.language, styles);
+      const languageVariable = LANG_COLOR[n.language?.toLowerCase()] || LANG_COLOR.default;
+      ctx.fillStyle = themeColor(languageVariable);
       ctx.globalAlpha = isDimmed ? 0.12 : isSelected ? 1 : isHovered ? 0.95 : 0.72;
       ctx.fill();
       ctx.globalAlpha = 1;
@@ -116,7 +134,7 @@ export function useForceGraph(
       if (isSelected || isHovered) {
         ctx.beginPath();
         ctx.arc(n.x, n.y, (r + 4) / scale, 0, Math.PI * 2);
-        ctx.strokeStyle = getLangColor(n.language, styles);
+        ctx.strokeStyle = themeColor(languageVariable);
         ctx.lineWidth = 2 / scale;
         ctx.globalAlpha = isSelected ? 1 : 0.5;
         ctx.stroke();
@@ -137,16 +155,61 @@ export function useForceGraph(
   }, [canvasRef]);
 
   useEffect(() => {
-    if (!nodes.length) return;
+    const refreshThemeColors = () => {
+      const styles = getComputedStyle(document.documentElement);
+      const variables = new Set([
+        "--canvas-edge-highlight",
+        "--canvas-edge",
+        "--canvas-edge-muted",
+        "--fg",
+        "--fg-dim",
+        "--subtle",
+        ...Object.values(LANG_COLOR),
+      ]);
+      themeColorsRef.current = Object.fromEntries(
+        [...variables].map((name) => [name, styles.getPropertyValue(name).trim()]),
+      );
+      draw();
+    };
+
+    refreshThemeColors();
+    const colorScheme = window.matchMedia("(prefers-color-scheme: dark)");
+    colorScheme.addEventListener("change", refreshThemeColors);
+    return () => colorScheme.removeEventListener("change", refreshThemeColors);
+  }, [draw]);
+
+  useEffect(() => {
+    if (!nodes.length) {
+      if (animRef.current !== null) cancelAnimationFrame(animRef.current);
+      animRef.current = null;
+      simRef.current = [];
+      previousSimulationSignatureRef.current = simulationSignature;
+      return;
+    }
+    const sameSimulation = previousSimulationSignatureRef.current === simulationSignature;
+    previousSimulationSignatureRef.current = simulationSignature;
     const W = 1200;
     const H = 900;
-    const sim = nodes.map((n) => ({
-      ...n,
-      x: W / 2 + (Math.random() - 0.5) * 400,
-      y: H / 2 + (Math.random() - 0.5) * 400,
-      vx: 0,
-      vy: 0,
-    }));
+    const existingNodes = new Map((simRef.current || []).map((node) => [node.path, node]));
+    const sim = nodes.map((node) => {
+      const existing = existingNodes.get(node.path);
+      if (existing) return Object.assign(existing, node);
+
+      let hash = 2166136261;
+      for (let index = 0; index < node.path.length; index++) {
+        hash ^= node.path.charCodeAt(index);
+        hash = Math.imul(hash, 16777619);
+      }
+      const xFraction = (hash >>> 0) / 0xffffffff;
+      const yFraction = ((hash ^ (hash >>> 16)) >>> 0) / 0xffffffff;
+      return {
+        ...node,
+        x: W / 2 + (xFraction - 0.5) * 400,
+        y: H / 2 + (yFraction - 0.5) * 400,
+        vx: 0,
+        vy: 0,
+      };
+    });
     simRef.current = sim;
     const nodeMap = {};
     sim.forEach((n) => { nodeMap[n.path] = n; });
@@ -154,10 +217,18 @@ export function useForceGraph(
       sim.map((node) => [node.path, node.path.includes("/") ? node.path.split("/")[0] : "(root)"]),
     );
 
-    let tick = 0;
+    const cancelFrame = () => {
+      if (animRef.current !== null) {
+        cancelAnimationFrame(animRef.current);
+        animRef.current = null;
+      }
+    };
     const step = () => {
-      tick++;
-      const alpha = Math.max(0.001, 0.3 * Math.pow(0.994, tick));
+      const alpha = alphaRef.current;
+      if (alpha < 0.005) {
+        animRef.current = null;
+        return;
+      }
       const cx = W / 2;
       const cy = H / 2;
 
@@ -217,14 +288,47 @@ export function useForceGraph(
       });
 
       draw();
-      animRef.current = requestAnimationFrame(step);
+      alphaRef.current *= 0.994;
+      if (alphaRef.current >= 0.005) {
+        animRef.current = requestAnimationFrame(step);
+      } else {
+        animRef.current = null;
+      }
     };
 
-    animRef.current = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(animRef.current);
-  }, [nodes, edges, draw]);
+    const restart = () => {
+      cancelFrame();
+      alphaRef.current = 0.3;
+      animRef.current = requestAnimationFrame(step);
+    };
+    restartSimulationRef.current = restart;
+    if (sameSimulation) {
+      draw();
+    } else {
+      restart();
+    }
+    return () => {
+      cancelFrame();
+      restartSimulationRef.current = null;
+    };
+  }, [nodes, edges, draw, simulationSignature]);
 
-  useEffect(() => { draw(); });
+  useEffect(() => {
+    draw();
+    const signature = JSON.stringify([
+      searchQuery,
+      neighborhoodOnly,
+      [...allowedPaths].sort(),
+    ]);
+    if (filterSignatureRef.current !== null && filterSignatureRef.current !== signature) {
+      restartSimulationRef.current?.();
+    }
+    filterSignatureRef.current = signature;
+  }, [allowedPaths, draw, neighborhoodOnly, searchQuery]);
+
+  useEffect(() => () => {
+    if (animRef.current !== null) cancelAnimationFrame(animRef.current);
+  }, []);
 
   const getNode = useCallback((ex, ey) => {
     const canvas = canvasRef.current;
@@ -333,6 +437,7 @@ export function useForceGraph(
   const onPointerUp = useCallback((e) => {
     activePointersRef.current.delete(e.pointerId);
     if (hadPinchRef.current) suppressClickRef.current = true;
+    const releasedNode = Boolean(dragNodeRef.current);
     if (dragNodeRef.current) {
       dragNodeRef.current.fixed = true;
       dragNodeRef.current = null;
@@ -349,6 +454,7 @@ export function useForceGraph(
       };
     }
     if (activePointersRef.current.size === 0) hadPinchRef.current = false;
+    if (releasedNode) restartSimulationRef.current?.();
   }, []);
 
   const onWheel = useCallback((e) => {
@@ -391,5 +497,14 @@ export function useForceGraph(
     draw();
   }, [canvasRef, draw]);
 
-  return { onPointerDown, onPointerMove, onPointerUp, onWheel, onClick, centerNode };
+  return {
+    onPointerDown,
+    onPointerMove,
+    onPointerUp,
+    onWheel,
+    onClick,
+    centerNode,
+    draw,
+    getSimulation,
+  };
 }

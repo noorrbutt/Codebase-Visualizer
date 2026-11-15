@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import LangDonut from "./components/charts/LangDonut";
 import ComplexityChart from "./components/charts/ComplexityChart";
 import ConnectionsChart from "./components/charts/ConnectionsChart";
@@ -220,6 +220,16 @@ export default function DashboardPage({ data, onReset }) {
   const [exportToast, setExportToast] = useState("");
   const [exportToastError, setExportToastError] = useState(false);
   const exportToastTimeout = useRef(null);
+  const [graphSimulation, setGraphSimulation] = useState(() => ({
+    repoId: data.id,
+    simulation: null,
+  }));
+  const initialSimulation = graphSimulation.repoId === data.id
+    ? graphSimulation.simulation
+    : null;
+  const saveGraphSimulation = useCallback((simulation) => {
+    setGraphSimulation({ repoId: data.id, simulation });
+  }, [data.id]);
 
   useEffect(() => () => window.clearTimeout(exportToastTimeout.current), []);
 
@@ -538,10 +548,13 @@ export default function DashboardPage({ data, onReset }) {
       {activeTab === "graph" && (
         <div id="dashboard-panel-graph" className="dashboard-graph-layout" role="tabpanel" aria-labelledby="dashboard-tab-graph" tabIndex={0} style={{ flex: 1, display: "flex", overflow: "hidden", position: "relative" }}>
           <GraphView
+            key={data.id}
             nodes={data.nodes}
             edges={data.edges}
             selectedNode={selectedNode}
             onSelectNode={setSelectedNode}
+            initialSimulation={initialSimulation}
+            onSimulationChange={saveGraphSimulation}
           />
           <div className={`graph-export-actions${selectedNode ? " has-selection" : ""}`} style={{ position: "absolute", zIndex: 5, top: 12, right: selectedNode ? 332 : 12, display: "flex", gap: 6 }}>
             <button type="button" onClick={() => notifyExport(() => exportGraphPng(document.getElementById("dependency-graph-canvas"), exportFilename), "PNG exported.")} style={exportButtonStyle}>PNG</button>
