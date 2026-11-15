@@ -35,7 +35,7 @@ class CodeParser:
             language = "text"
             imports = []
 
-        logger.debug("Parsed %s -> %s imports", file_path, len(imports))
+        logger.debug("Parsed {} -> {} imports", file_path, len(imports))
 
         return {
             "language": language,

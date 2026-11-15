@@ -120,7 +120,7 @@ def _save_file_analysis(
         except Exception as exc:
             db.rollback()
             logger.error(
-                "Failed to update analysis for %s/%s: %s",
+                "Failed to update analysis for {}/{}: {}",
                 context.github_url,
                 context.file_path,
                 exc,

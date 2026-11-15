@@ -1092,7 +1092,7 @@ async def resume_pending_repo_analyses() -> None:
                     )
                 except RuntimeError:
                     logger.error(
-                        "resume_pending_repo_analyses called outside running loop, skipping - repo %s left for another worker to reclaim",
+                        "resume_pending_repo_analyses called outside running loop, skipping - repo {} left for another worker to reclaim",
                         repo.id,
                     )
                     # leave the claim so another worker may reclaim later
@@ -1179,7 +1179,7 @@ async def analyze_repo(
                 _mark_repo_analysis_failed, repo_id, "Analysis failed"
             )
             logger.error(
-                "Saved repository %s but failed to queue analysis: %s", repo_key, exc
+                "Saved repository {} but failed to queue analysis: {}", repo_key, exc
             )
             raise HTTPException(
                 status_code=500, detail="Repository saved but analysis scheduling failed"

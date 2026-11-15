@@ -80,7 +80,7 @@ class GithubService:
 
             if response.status_code in _TRANSIENT_STATUS_CODES:
                 logger.warning(
-                    "GitHub returned transient status %s for %s (attempt %s/%s)",
+                    "GitHub returned transient status {} for {} (attempt {}/{})",
                     response.status_code,
                     url,
                     attempt,
