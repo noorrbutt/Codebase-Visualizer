@@ -20,7 +20,6 @@ import app.services.rate_limit as rate_limit_module
 from app.database import Base
 from app.exceptions import (
     AIBudgetExceededError,
-    AIServiceError,
     GithubRateLimitError,
     RepoNotFoundError,
     RepoPrivateError,
@@ -1081,9 +1080,15 @@ def test_build_repo_analysis_marks_ready_when_ai_summary_fails(client, monkeypat
         observed_stages.append(get_stage())
         return {"imports": [], "language": "python", "line_count": 1}
 
+    observed_statuses = []
+
     def fail_summary(*args, **kwargs):
         observed_stages.append(get_stage())
-        raise AIServiceError("AI summary generation failed")
+        with database_module.SessionLocal() as db:
+            repo = db.get(Repository, repo_id)
+            assert repo is not None
+            observed_statuses.append(repo.status)
+        raise RuntimeError("AI summary backend unavailable")
 
     monkeypatch.setattr(repos_module.github_service, "get_file_tree", get_file_tree)
     monkeypatch.setattr(repos_module.github_service, "fetch_files_concurrent", fetch_files)
@@ -1122,7 +1127,8 @@ def test_build_repo_analysis_marks_ready_when_ai_summary_fails(client, monkeypat
         assert repo.summary is None
         assert repo.locked_at is None
         assert repo.worker_id is None
-    assert observed_stages == ["fetching", "fetching", "parsing", "summarizing"]
+    assert observed_stages == ["fetching", "fetching", "parsing", None]
+    assert observed_statuses == ["ready"]
 
 
 def test_build_repo_analysis_fails_without_supported_files(client, monkeypatch):

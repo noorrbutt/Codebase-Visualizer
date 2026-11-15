@@ -477,6 +477,21 @@ def _update_repo_analysis_state(
         db.close()
 
 
+def _update_repo_summary(repo_id: int, summary: str) -> None:
+    db = SessionLocal()
+    try:
+        repo = db.get(Repository, repo_id)
+        if repo is None:
+            return
+        repo.summary = summary
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
 def _set_repo_analysis_stage(repo_id: int, stage: str) -> None:
     db = SessionLocal()
     try:
@@ -964,34 +979,33 @@ async def _build_repo_analysis(
         if not persisted:
             return
 
-        await asyncio.to_thread(_set_repo_analysis_stage, repo_id, "summarizing")
+        await asyncio.to_thread(
+            _update_repo_analysis_state, repo_id, "ready", None, True
+        )
+        if settings.AUTO_ANALYZE_TOP_FILES > 0:
+            asyncio.create_task(_auto_analyze_top_files(repo_id))
+
         try:
-            summary = await asyncio.to_thread(
-                ai_service.generate_repo_summary,
-                repo_name,
-                file_paths,
-                client_ip=client_ip,
-                readme_excerpt=readme_excerpt,
-                manifest_excerpt=manifest_excerpt,
-                top_files=top_files,
+            summary = await asyncio.wait_for(
+                asyncio.to_thread(
+                    ai_service.generate_repo_summary,
+                    repo_name,
+                    file_paths,
+                    client_ip=client_ip,
+                    readme_excerpt=readme_excerpt,
+                    manifest_excerpt=manifest_excerpt,
+                    top_files=top_files,
+                ),
+                timeout=20,
             )
-            await asyncio.to_thread(
-                _update_repo_analysis_state, repo_id, "ready", summary, True
-            )
-            if settings.AUTO_ANALYZE_TOP_FILES > 0:
-                asyncio.create_task(_auto_analyze_top_files(repo_id))
-            logger.info("Background repo analysis complete for repo {}", repo_id)
-        except AIServiceError as exc:
-            await asyncio.to_thread(
-                _update_repo_analysis_state, repo_id, "ready", None, True
-            )
+            await asyncio.to_thread(_update_repo_summary, repo_id, summary)
+            logger.info("Background repo analysis completed for repo {}", repo_id)
+        except Exception as exc:
             logger.warning(
-                "AI summary unavailable for repo {} due to budget/AI failure: {}",
+                "AI summary unavailable for repo {}: {}",
                 repo_id,
                 exc,
             )
-            if settings.AUTO_ANALYZE_TOP_FILES > 0:
-                asyncio.create_task(_auto_analyze_top_files(repo_id))
             logger.info("Background repo analysis completed without AI summary for repo {}", repo_id)
     except Exception as exc:
         logger.error("Background repo analysis failed for repo {}: {}", repo_id, exc)
