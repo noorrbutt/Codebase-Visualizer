@@ -574,6 +574,7 @@ export default function DashboardPage({ data, onReset }) {
             repoOwner={data.owner}
             repoName={data.repo_name}
             repoBranch={data.default_branch}
+            repoCommitSha={data.commit_sha}
             onClose={() => setSelectedNode(null)}
           />
         </div>
@@ -596,6 +597,7 @@ export default function DashboardPage({ data, onReset }) {
             repoOwner={data.owner}
             repoName={data.repo_name}
             repoBranch={data.default_branch}
+            repoCommitSha={data.commit_sha}
             onClose={() => setSelectedNode(null)}
           />
         </div>

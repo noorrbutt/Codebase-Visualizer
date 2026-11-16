@@ -273,6 +273,7 @@ def test_get_repo_by_name_is_case_insensitive_and_returns_graph(client):
             repo_name="Hello-World",
             github_url="https://github.com/OctoCat/Hello-World",
             default_branch="main",
+            commit_sha="0123456789abcdef0123456789abcdef01234567",
             status="ready",
             summary="summary",
         )
@@ -299,6 +300,7 @@ def test_get_repo_by_name_is_case_insensitive_and_returns_graph(client):
     assert response.status_code == 200
     assert response.json()["id"] == repo_id
     assert response.json()["summary"] == "summary"
+    assert response.json()["commit_sha"] == "0123456789abcdef0123456789abcdef01234567"
     assert response.json()["nodes"][0]["path"] == "src/app.py"
     assert response.json()["nodes"][0]["ai_role"] is None
     assert response.json()["nodes"][0]["ai_complexity"] is None

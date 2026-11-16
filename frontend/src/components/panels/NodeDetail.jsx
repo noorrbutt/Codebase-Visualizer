@@ -57,7 +57,16 @@ function MetaGrid({ items }) {
   );
 }
 
-export default function NodeDetail({ node, edges, repoId, repoOwner, repoName, repoBranch, onClose }) {
+export default function NodeDetail({
+  node,
+  edges,
+  repoId,
+  repoOwner,
+  repoName,
+  repoBranch,
+  repoCommitSha,
+  onClose,
+}) {
   const [tab, setTab] = useState("info");
   const [content, setContent] = useState(null);
   const [loadingContent, setLoadingContent] = useState(false);
@@ -77,7 +86,10 @@ export default function NodeDetail({ node, edges, repoId, repoOwner, repoName, r
     if (content !== null) return;
     setLoadingContent(true);
     try {
-      const url = `https://raw.githubusercontent.com/${repoOwner}/${repoName}/${repoBranch}/${node.path}`;
+      const ref = repoCommitSha || repoBranch;
+      const encodedRef = ref.split("/").map(encodeURIComponent).join("/");
+      const encodedPath = node.path.split("/").map(encodeURIComponent).join("/");
+      const url = `https://raw.githubusercontent.com/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/${encodedRef}/${encodedPath}`;
       const res = await fetch(url);
       if (!res.ok) throw new Error("Not found");
       setContent(await res.text());

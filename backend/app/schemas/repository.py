@@ -52,6 +52,7 @@ class AnalyzeResponse(BaseModel):
     repo_name: str
     owner: str
     default_branch: str
+    commit_sha: str | None = None
     status: str
     summary: str | None
     total_files: int
