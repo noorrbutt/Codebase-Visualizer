@@ -480,6 +480,7 @@ def test_rebuild_preserves_ai_fields_for_unchanged_files(client, monkeypatch):
             FileNode(
                 repo_id=repo_id,
                 file_path="src/app.py",
+                blob_sha="blob-sha",
                 language="python",
                 line_count=2,
                 import_count=0,
@@ -496,7 +497,7 @@ def test_rebuild_preserves_ai_fields_for_unchanged_files(client, monkeypatch):
         repos_module.github_service,
         "get_file_tree",
         lambda owner, repo_name, ref: (
-            [{"path": "src/app.py"}] if ref == commit_sha else []
+            [{"path": "src/app.py", "sha": "blob-sha"}] if ref == commit_sha else []
         ),
     )
     monkeypatch.setattr(
@@ -545,9 +546,81 @@ def test_rebuild_preserves_ai_fields_for_unchanged_files(client, monkeypatch):
         assert node.ai_complexity == "low"
         assert node.ai_role == "utility"
         assert node.analyzed_at == analyzed_at
+        assert node.blob_sha == "blob-sha"
         repo = db.get(Repository, repo_id)
         assert repo is not None
         assert repo.commit_sha == commit_sha
+
+
+@pytest.mark.parametrize(
+    ("previous_sha", "new_sha", "previous_lines", "new_lines", "should_preserve"),
+    [
+        ("same-sha", "same-sha", 10, 20, True),
+        ("old-sha", "new-sha", 10, 10, False),
+        (None, "new-sha", 10, 10, True),
+        ("old-sha", None, 10, 10, True),
+        (None, "new-sha", 10, 11, False),
+    ],
+)
+def test_persist_repo_files_reuses_ai_fields_only_for_unchanged_blob_or_line_count_fallback(
+    client, previous_sha, new_sha, previous_lines, new_lines, should_preserve
+):
+    with database_module.SessionLocal() as db:
+        repo = Repository(
+            owner="octocat",
+            repo_name="sha-check",
+            github_url="https://github.com/octocat/sha-check",
+            default_branch="main",
+            status="ready",
+        )
+        db.add(repo)
+        db.flush()
+        repo_id = repo.id
+        db.add(
+            FileNode(
+                repo_id=repo_id,
+                file_path="src/app.py",
+                blob_sha=previous_sha,
+                language="python",
+                line_count=previous_lines,
+                import_count=0,
+                ai_summary="saved summary",
+                ai_summary_detail="saved detail",
+                ai_complexity="low",
+                ai_role="utility",
+                analyzed_at=datetime(2026, 1, 1),
+            )
+        )
+        db.commit()
+
+    replacement = FileNode(
+        file_path="src/app.py",
+        blob_sha=new_sha,
+        language="python",
+        line_count=new_lines,
+        import_count=0,
+    )
+    assert repos_module._persist_repo_analysis_files(repo_id, [replacement], []) is True
+
+    with database_module.SessionLocal() as db:
+        node = (
+            db.query(FileNode)
+            .filter(FileNode.repo_id == repo_id, FileNode.file_path == "src/app.py")
+            .one()
+        )
+        if should_preserve:
+            assert node.ai_summary == "saved summary"
+            assert node.ai_summary_detail == "saved detail"
+            assert node.ai_complexity == "low"
+            assert node.ai_role == "utility"
+            assert node.analyzed_at == datetime(2026, 1, 1)
+        else:
+            assert node.ai_summary is None
+            assert node.ai_summary_detail is None
+            assert node.ai_complexity is None
+            assert node.ai_role is None
+            assert node.analyzed_at is None
+        assert node.blob_sha == new_sha
 
 
 def test_get_repo_requires_api_key_when_configured(client):

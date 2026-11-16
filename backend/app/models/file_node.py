@@ -13,6 +13,7 @@ class FileNode(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     repo_id = Column(Integer, ForeignKey("repository.id"), nullable=False, index=True)
     file_path = Column(String, nullable=False)
+    blob_sha = Column(String, nullable=True)
     language = Column(String, nullable=True)
     line_count = Column(Integer, nullable=False, default=0)
     import_count = Column(Integer, nullable=False, default=0)

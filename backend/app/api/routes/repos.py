@@ -719,6 +719,7 @@ def _persist_repo_analysis_files(
         )
         ai_data_by_path = {
             node.file_path: (
+                node.blob_sha,
                 node.line_count,
                 node.ai_summary,
                 node.ai_summary_detail,
@@ -730,15 +731,22 @@ def _persist_repo_analysis_files(
         }
         for node in node_records:
             previous = ai_data_by_path.get(node.file_path)
-            if previous is not None and previous[0] == node.line_count:
+            if previous is None:
+                continue
+            previous_blob_sha, previous_line_count = previous[:2]
+            unchanged = (
+                node.blob_sha == previous_blob_sha
+                if node.blob_sha is not None and previous_blob_sha is not None
+                else node.line_count == previous_line_count
+            )
+            if unchanged:
                 (
-                    _,
                     node.ai_summary,
                     node.ai_summary_detail,
                     node.ai_complexity,
                     node.ai_role,
                     node.analyzed_at,
-                ) = previous
+                ) = previous[2:]
 
         db.query(FileEdgeModel).filter(FileEdgeModel.repo_id == repo.id).delete()
         db.query(FileNode).filter(FileNode.repo_id == repo.id).delete()
@@ -944,6 +952,7 @@ async def _build_repo_analysis(
         await asyncio.to_thread(_set_repo_analysis_stage, repo_id, "parsing")
         parsed_results: dict[str, list[str]] = {}
         node_records: list[FileNode] = []
+        blob_sha_by_path = {item["path"]: item.get("sha") for item in tree_items}
 
         for path, content in contents.items():
             result = code_parser.parse(path, content)
@@ -951,6 +960,7 @@ async def _build_repo_analysis(
             node_records.append(
                 FileNode(
                     file_path=path,
+                    blob_sha=blob_sha_by_path.get(path),
                     language=result["language"],
                     line_count=result["line_count"],
                     import_count=len(result["imports"]),
