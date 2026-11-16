@@ -53,6 +53,10 @@ class FakeRedis:
         self.values[key] = self.values.get(key, 0) + 1
         return self.values[key]
 
+    def decr(self, key: str) -> int:
+        self.values[key] = self.values.get(key, 0) - 1
+        return self.values[key]
+
     def expire(self, key: str, ttl: int) -> bool:
         self.expirations[key] = ttl
         return True

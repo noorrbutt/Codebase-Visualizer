@@ -32,6 +32,11 @@ class InMemoryRedis:
         self.values[key] = val
         return val
 
+    def decr(self, key: str) -> int:
+        value = int(self.get(key) or 0) - 1
+        self.values[key] = value
+        return value
+
     def expire(self, key: str, ttl: int) -> bool:
         # set expiration relative to the internal clock
         self.expirations[key] = self._now + ttl
