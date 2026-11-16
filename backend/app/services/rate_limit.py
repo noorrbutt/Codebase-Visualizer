@@ -14,9 +14,16 @@ logger = get_logger(__name__)
 
 
 class IPRateLimiter:
-    def __init__(self, max_requests: int, window_seconds: int, redis_client: Redis | None = None) -> None:
+    def __init__(
+        self,
+        max_requests: int,
+        window_seconds: int,
+        redis_client: Redis | None = None,
+        key_prefix: str = "default",
+    ) -> None:
         self.max_requests = max_requests
         self.window_seconds = window_seconds
+        self.key_prefix = key_prefix
         self._redis_client = redis_client
 
     @staticmethod
@@ -62,7 +69,7 @@ class IPRateLimiter:
         now = time.time()
         window_id = int(now // self.window_seconds)
         redis_client = self._get_redis_client()
-        key = f"rate_limit:{ip_address}:{window_id}"
+        key = f"rate_limit:{self.key_prefix}:{ip_address}:{window_id}"
 
         count = int(redis_client.incr(key))
         if count == 1:

@@ -48,8 +48,21 @@ github_service = GithubService()
 code_parser = CodeParser()
 ai_service = AIService()
 repo_rate_limiter = IPRateLimiter(
-    max_requests=settings.RATE_LIMIT_REQUESTS_PER_MINUTE, window_seconds=60
+    max_requests=settings.RATE_LIMIT_REQUESTS_PER_MINUTE,
+    window_seconds=60,
+    key_prefix="repo_analysis",
 )
+repo_read_rate_limiter = IPRateLimiter(
+    max_requests=60,
+    window_seconds=60,
+    key_prefix="repo_read",
+)
+
+
+async def _enforce_repo_read_limit(request: Request) -> None:
+    client_ip = IPRateLimiter.resolve_client_ip(request)
+    if not await asyncio.to_thread(repo_read_rate_limiter.allow, client_ip):
+        raise HTTPException(status_code=429, detail="Rate limit exceeded for repository reads")
 # Both structures below are Redis-backed (see app/services/coordination.py) so
 # the concurrency cap and per-repo locking hold across process restarts and
 # multiple instances, not just within one running process.
@@ -1221,7 +1234,10 @@ async def analyze_repo(
         await repo_lock_manager.release(repo_key, lock_token)
 
 
-@router.get("/{repo_id}/status", dependencies=[Depends(_require_api_key)])
+@router.get(
+    "/{repo_id}/status",
+    dependencies=[Depends(_require_api_key), Depends(_enforce_repo_read_limit)],
+)
 def get_repo_status(repo_id: int, db: Session = Depends(get_db)) -> dict[str, str | None]:
     repo = db.query(Repository).filter(Repository.id == repo_id).first()
     if repo is None:
@@ -1229,7 +1245,11 @@ def get_repo_status(repo_id: int, db: Session = Depends(get_db)) -> dict[str, st
     return {"status": repo.status, "error": repo.error_message, "stage": repo.stage}
 
 
-@router.get("/", response_model=list[RepoListItem], dependencies=[Depends(_require_api_key)])
+@router.get(
+    "/",
+    response_model=list[RepoListItem],
+    dependencies=[Depends(_require_api_key), Depends(_enforce_repo_read_limit)],
+)
 def list_repos(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
@@ -1262,7 +1282,7 @@ def list_repos(
 @router.get(
     "/by-name/{owner}/{repo}",
     response_model=AnalyzeResponse,
-    dependencies=[Depends(_require_api_key)],
+    dependencies=[Depends(_require_api_key), Depends(_enforce_repo_read_limit)],
 )
 def get_repo_by_name(owner: str, repo: str, db: Session = Depends(get_db)) -> AnalyzeResponse:
     record = (
@@ -1298,7 +1318,11 @@ def get_repo_by_name(owner: str, repo: str, db: Session = Depends(get_db)) -> An
     )
 
 
-@router.get("/{repo_id}", response_model=AnalyzeResponse, dependencies=[Depends(_require_api_key)])
+@router.get(
+    "/{repo_id}",
+    response_model=AnalyzeResponse,
+    dependencies=[Depends(_require_api_key), Depends(_enforce_repo_read_limit)],
+)
 def get_repo(repo_id: int, db: Session = Depends(get_db)) -> AnalyzeResponse:
     repo = db.query(Repository).filter(Repository.id == repo_id).first()
     if repo is None:

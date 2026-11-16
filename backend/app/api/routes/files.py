@@ -24,7 +24,9 @@ router = APIRouter(prefix="/files", tags=["files"])
 github_service = GithubService()
 ai_service = AIService()
 file_rate_limiter = IPRateLimiter(
-    max_requests=settings.RATE_LIMIT_REQUESTS_PER_MINUTE, window_seconds=60
+    max_requests=settings.RATE_LIMIT_REQUESTS_PER_MINUTE,
+    window_seconds=60,
+    key_prefix="file_analysis",
 )
 
 

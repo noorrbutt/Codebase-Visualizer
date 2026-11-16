@@ -138,6 +138,27 @@ def test_rate_limiter_allows_exact_limit_and_rejects_next(monkeypatch):
     assert limiter.allow("203.0.113.1") is False
 
 
+def test_rate_limiter_prefixes_isolate_independent_limits(monkeypatch):
+    fake_redis = FakeRedis()
+    monkeypatch.setattr("app.services.rate_limit.time.time", lambda: 1000)
+    repo_limiter = IPRateLimiter(
+        max_requests=1,
+        window_seconds=60,
+        key_prefix="repo_analysis",
+        redis_client=fake_redis,
+    )
+    file_limiter = IPRateLimiter(
+        max_requests=1,
+        window_seconds=60,
+        key_prefix="file_analysis",
+        redis_client=fake_redis,
+    )
+
+    assert repo_limiter.allow("203.0.113.3") is True
+    assert repo_limiter.allow("203.0.113.3") is False
+    assert file_limiter.allow("203.0.113.3") is True
+
+
 def test_rate_limiter_window_expiry_allows_new_requests(monkeypatch):
     fake_redis = FakeRedis()
     current_time = [1000]

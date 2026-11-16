@@ -60,6 +60,7 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(main_module.settings, "API_KEY", "test-api-key")
     monkeypatch.setattr(repos_module.settings, "API_KEY", "test-api-key")
     monkeypatch.setattr(repos_module.github_service, "get_typescript_config", lambda *args: None)
+    monkeypatch.setattr(repos_module.repo_read_rate_limiter, "allow", lambda ip: True)
 
     # Coordination (concurrency gate + per-repo mutex) is Redis-backed in
     # production; swap in the same in-memory fake used elsewhere in this
@@ -121,6 +122,20 @@ def test_repo_status_includes_error_message(client):
         "error": "Repository not found: https://github.com/octocat/hello-world",
         "stage": None,
     }
+
+
+def test_repo_read_limit_does_not_limit_health(client, monkeypatch):
+    monkeypatch.setattr(repos_module.repo_read_rate_limiter, "allow", lambda ip: False)
+
+    read_response = client.get(
+        "/repos/1",
+        headers={"X-API-Key": "test-api-key"},
+    )
+    health_response = client.get("/health")
+
+    assert read_response.status_code == 429
+    assert read_response.json()["detail"] == "Rate limit exceeded for repository reads"
+    assert health_response.status_code == 200
 
 
 def test_slow_github_metadata_does_not_block_health(client, monkeypatch):
