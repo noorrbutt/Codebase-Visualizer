@@ -77,8 +77,8 @@ def test_analyze_file_normalizes_and_limits_ai_fields():
             import json
 
             return FakeResponse(json.dumps({
-                "summary": f"  {'s' * 650}  ",
-                "summary_detail": f"  {'d' * 610}  ",
+                "summary": f"  {'s' * 598}. {'x' * 100}  ",
+                "summary_detail": f"  {'d' * 590}. {'y' * 100}  ",
                 "complexity": " HIGH ",
                 "role": "API Router",
             }))
@@ -91,8 +91,8 @@ def test_analyze_file_normalizes_and_limits_ai_fields():
     result = service._call_analyze_file("file.py", "content")
 
     assert result == {
-        "summary": "s" * 600,
-        "summary_detail": "d" * 600,
+        "summary": "s" * 598 + ".",
+        "summary_detail": "d" * 590 + ".",
         "complexity": "high",
         "role": "api_router",
     }

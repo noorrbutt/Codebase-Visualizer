@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from typing import Dict, List
 
 from groq import Groq
@@ -15,6 +16,17 @@ from app.services.redis_client import get_redis_client
 logger = get_logger(__name__)
 
 GROQ_MODEL = "openai/gpt-oss-120b"
+
+
+def _truncate_at_sentence_end(text: str, max_chars: int = 600) -> str:
+    if len(text) <= max_chars:
+        return text
+
+    candidate = text[:max_chars]
+    sentence_ends = list(re.finditer(r"""[.!?](?:["')\]]*)?(?=\s|$)""", candidate))
+    if not sentence_ends:
+        return ""
+    return candidate[:sentence_ends[-1].end()].rstrip()
 
 
 class AIService:
@@ -230,8 +242,10 @@ class AIService:
             role = "unknown"
 
         return {
-            "summary": str(parsed["summary"]).strip()[:600],
-            "summary_detail": str(parsed["summary_detail"]).strip()[:600],
+            "summary": _truncate_at_sentence_end(str(parsed["summary"]).strip()),
+            "summary_detail": _truncate_at_sentence_end(
+                str(parsed["summary_detail"]).strip()
+            ),
             "complexity": complexity,
             "role": role,
         }
