@@ -875,37 +875,6 @@ def _get_fresh_repo_analysis(repo_key: str, force: bool) -> dict | None:
         db.close()
 
 
-async def _build_repo_summary(
-    repo_id: int,
-    repo_name: str,
-    file_paths: list[str],
-    client_ip: str | None = None,
-    readme_excerpt: str | None = None,
-    manifest_excerpt: str | None = None,
-    top_files: list[str] | None = None,
-) -> None:
-    try:
-        summary = await asyncio.to_thread(
-            ai_service.generate_repo_summary,
-            repo_name,
-            file_paths,
-            client_ip=client_ip,
-            readme_excerpt=readme_excerpt,
-            manifest_excerpt=manifest_excerpt,
-            top_files=top_files,
-        )
-        await asyncio.to_thread(_update_repo_analysis_state, repo_id, "ready", summary)
-        logger.info("Repo summary saved for repo {}", repo_id)
-    except Exception as exc:
-        logger.error("Repo summary background task failed for repo {}: {}", repo_id, exc)
-        await asyncio.to_thread(
-            _mark_repo_analysis_failed,
-            repo_id,
-            _analysis_error_message(exc),
-            clear_lock=False,
-        )
-
-
 async def _build_repo_analysis(
     repo_id: int,
     owner: str,

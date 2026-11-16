@@ -9,8 +9,6 @@ import app.main as main_module
 
 
 def test_production_sqlite_is_rejected(monkeypatch):
-    monkeypatch.setattr(main_module, "create_tables", lambda: None)
-
     async def _nop():
         return None
 

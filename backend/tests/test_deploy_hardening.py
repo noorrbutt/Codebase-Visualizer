@@ -24,8 +24,6 @@ def test_cors_origins_accepts_json_array_env(monkeypatch):
 
 
 def test_production_refuses_trusted_proxy_headers_without_proxy_count(monkeypatch):
-    monkeypatch.setattr(main_module, "create_tables", lambda: None)
-
     async def _nop():
         return None
 

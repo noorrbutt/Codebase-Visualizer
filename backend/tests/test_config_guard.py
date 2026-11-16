@@ -9,7 +9,6 @@ import app.main as main_module
 
 
 def test_raises_in_production_when_api_key_missing(monkeypatch):
-    monkeypatch.setattr(main_module, "create_tables", lambda: None)
     async def _nop():
         return None
     monkeypatch.setattr(main_module, "resume_pending_repo_analyses", _nop)
@@ -25,7 +24,6 @@ def test_raises_in_production_when_api_key_missing(monkeypatch):
 
 
 def test_no_raise_in_development_when_api_key_missing(monkeypatch):
-    monkeypatch.setattr(main_module, "create_tables", lambda: None)
     async def _nop():
         return None
     monkeypatch.setattr(main_module, "resume_pending_repo_analyses", _nop)
@@ -41,7 +39,6 @@ def test_no_raise_in_development_when_api_key_missing(monkeypatch):
 
 
 def test_requires_github_token_in_production_when_api_key_present(monkeypatch):
-    monkeypatch.setattr(main_module, "create_tables", lambda: None)
     async def _nop():
         return None
     monkeypatch.setattr(main_module, "resume_pending_repo_analyses", _nop)
@@ -58,7 +55,6 @@ def test_requires_github_token_in_production_when_api_key_present(monkeypatch):
 
 
 def test_no_raise_in_production_when_both_keys_present(monkeypatch):
-    monkeypatch.setattr(main_module, "create_tables", lambda: None)
     async def _nop():
         return None
     monkeypatch.setattr(main_module, "resume_pending_repo_analyses", _nop)

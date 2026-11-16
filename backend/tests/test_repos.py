@@ -56,7 +56,6 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(database_module, "SessionLocal", test_session_local)
     monkeypatch.setattr(repos_module, "SessionLocal", test_session_local)
     monkeypatch.setattr(files_module, "SessionLocal", test_session_local)
-    monkeypatch.setattr(main_module, "create_tables", lambda: Base.metadata.create_all(bind=engine))
     monkeypatch.setattr(main_module.settings, "API_KEY", "test-api-key")
     monkeypatch.setattr(repos_module.settings, "API_KEY", "test-api-key")
     monkeypatch.setattr(repos_module.github_service, "get_typescript_config", lambda *args: None)
@@ -1315,7 +1314,7 @@ def test_fetch_manifest_excerpt_skips_missing_manifests(client, monkeypatch):
     assert excerpt.splitlines()[-1] == "line 39"
 
 
-def test_build_repo_summary_uses_readme_manifest_and_top_files(client, monkeypatch):
+def test_build_repo_analysis_uses_readme_manifest_and_top_files(client, monkeypatch):
     commit_sha = "0123456789abcdef0123456789abcdef01234567"
     with database_module.SessionLocal() as db:
         repo = Repository(
