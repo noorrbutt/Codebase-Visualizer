@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import random
+
 from app.api.routes.repos import (
     _build_edges,
     _parse_typescript_aliases,
@@ -32,6 +34,26 @@ def test_build_edges_resolves_extension_fallback_and_index_files():
 
     assert any(edge.source == "src/App.jsx" and edge.target == "src/components/Header.jsx" for edge in edges)
     assert any(edge.source == "src/App.jsx" and edge.target == "src/utils/index.ts" for edge in edges)
+
+
+def test_build_edges_prefers_exact_extensions_and_is_deterministic():
+    files = [
+        ("src/App.jsx", ["./Button", "./Button.css", "./Button", "./Button.css"]),
+        ("src/Button.jsx", []),
+        ("src/Button.css", []),
+    ]
+    expected_edges = [
+        ("src/App.jsx", "src/Button.css"),
+        ("src/App.jsx", "src/Button.jsx"),
+    ]
+
+    for seed in range(20):
+        shuffled_files = files.copy()
+        random.Random(seed).shuffle(shuffled_files)
+        parsed = dict(shuffled_files)
+        edges = _build_edges(parsed)
+
+        assert [(edge.source, edge.target) for edge in edges] == expected_edges
 
 
 def test_build_edges_resolves_at_alias_to_src_directory():

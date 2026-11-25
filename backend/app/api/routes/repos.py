@@ -148,6 +148,9 @@ def _resolve_relative_import(
         normalized_parts.append(part)
 
     resolved = PurePosixPath(*normalized_parts)
+    if resolved.suffix.lower() in _MODULE_EXTENSION_PRIORITY:
+        return module_map.get(resolved.as_posix())
+
     key = ".".join(resolved.with_suffix("").parts)
     if key in module_map:
         return module_map[key]
@@ -208,6 +211,14 @@ def _normalize_import(import_value: str) -> str:
         import_normalized = Path(import_normalized).with_suffix("")
         return ".".join(import_normalized.parts)
     return import_normalized
+
+
+_MODULE_EXTENSION_PRIORITY = {
+    extension: priority
+    for priority, extension in enumerate(
+        (".tsx", ".ts", ".jsx", ".js", ".py", ".html", ".css", ".md")
+    )
+}
 
 
 def _strip_jsonc_comments(content: str) -> str:
@@ -330,19 +341,19 @@ def _parse_typescript_aliases(config_text: str | None) -> dict[str, list[str]]:
 
 def _resolve_module_candidate(candidate: str, module_map: dict[str, str]) -> str | None:
     normalized = PurePosixPath(candidate.replace("\\", "/"))
-    supported_extensions = {".py", ".js", ".jsx", ".ts", ".tsx", ".html", ".css", ".md"}
-    has_supported_extension = normalized.suffix.lower() in supported_extensions
-    key_path = normalized.with_suffix("") if has_supported_extension else normalized
-    key = ".".join(key_path.parts)
+    has_supported_extension = normalized.suffix.lower() in _MODULE_EXTENSION_PRIORITY
+    if has_supported_extension:
+        return module_map.get(normalized.as_posix())
+
+    key = ".".join(normalized.parts)
     if key in module_map:
         return module_map[key]
 
-    if not has_supported_extension:
-        for extension in [".py", ".js", ".jsx", ".ts", ".tsx", ".html", ".css", ".md"]:
-            candidate_key = ".".join((*normalized.parts[:-1], normalized.name + extension))
-            candidate_key = ".".join(PurePosixPath(candidate_key).with_suffix("").parts)
-            if candidate_key in module_map:
-                return module_map[candidate_key]
+    for extension in _MODULE_EXTENSION_PRIORITY:
+        candidate_key = ".".join((*normalized.parts[:-1], normalized.name + extension))
+        candidate_key = ".".join(PurePosixPath(candidate_key).with_suffix("").parts)
+        if candidate_key in module_map:
+            return module_map[candidate_key]
 
     if normalized.name == "index":
         parent_key = ".".join(normalized.parent.parts)
@@ -385,18 +396,33 @@ def _build_edges(
     module_map: dict[str, str] = {}
     python_module_map: dict[str, str] = {}
 
+    for path in sorted(parsed):
+        key = _normalize_path_key(path)
+        existing_path = module_map.get(key)
+        extension = Path(path).suffix.lower()
+        existing_extension = Path(existing_path).suffix.lower() if existing_path else None
+        if (
+            existing_path is None
+            or _MODULE_EXTENSION_PRIORITY.get(extension, len(_MODULE_EXTENSION_PRIORITY))
+            < _MODULE_EXTENSION_PRIORITY.get(
+                existing_extension or "", len(_MODULE_EXTENSION_PRIORITY)
+            )
+        ):
+            module_map[key] = path
+        module_map[PurePosixPath(path.replace("\\", "/")).as_posix()] = path
+
     for path in parsed:
         key = _normalize_path_key(path)
-        module_map[key] = path
         if Path(path).suffix.lower() == ".py":
             python_module_map[key] = path
 
-    edges: list[FileEdge] = []
+    edge_keys: set[tuple[str, str]] = set()
     alias_map = dict(aliases or {})
     if any(path.startswith("src/") for path in parsed):
         alias_map.setdefault("@/*", ["src/*"])
 
-    for source, imports in parsed.items():
+    for source in sorted(parsed):
+        imports = parsed[source]
         for raw_import in imports:
             if Path(source).suffix.lower() == ".py":
                 if raw_import.startswith("."):
@@ -408,7 +434,7 @@ def _build_edges(
                         _normalize_import(raw_import), python_module_map
                     )
                 if target_path and target_path != source:
-                    edges.append(FileEdge(source=source, target=target_path))
+                    edge_keys.add((source, target_path))
                 continue
 
             target_path = (
@@ -418,7 +444,7 @@ def _build_edges(
             )
             if target_path:
                 if target_path != source:
-                    edges.append(FileEdge(source=source, target=target_path))
+                    edge_keys.add((source, target_path))
                 continue
 
             normalized_import = _normalize_import(raw_import)
@@ -428,9 +454,12 @@ def _build_edges(
                 target_path = _resolve_relative_import(source, raw_import, module_map)
 
             if target_path and target_path != source:
-                edges.append(FileEdge(source=source, target=target_path))
+                edge_keys.add((source, target_path))
 
-    return edges
+    return [
+        FileEdge(source=source, target=target)
+        for source, target in sorted(edge_keys)
+    ]
 
 
 def _normalize_file_records(
