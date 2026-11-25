@@ -81,13 +81,13 @@ def initialize_repo_analysis_concurrency_gate(limit: int | None = None) -> Redis
 # tests/test_protection_limits.py injects one into IPRateLimiter/AIService.
 
 
-async def acquire_repo_analysis_slot() -> bool:
+async def acquire_repo_analysis_slot() -> str | None:
     return await initialize_repo_analysis_concurrency_gate().try_acquire()
 
 
-async def release_repo_analysis_slot() -> None:
+async def release_repo_analysis_slot(token: str) -> None:
     if repo_analysis_concurrency_gate is not None:
-        await repo_analysis_concurrency_gate.release()
+        await repo_analysis_concurrency_gate.release(token)
 
 
 def _claim_repo_lock(repo: Repository) -> None:
@@ -1015,10 +1015,9 @@ async def _build_repo_analysis_with_timeout(
     repo_name: str,
     github_url: str,
     branch: str,
-    slot_preacquired: bool = False,
+    slot_token: str | None = None,
     client_ip: str | None = None,
 ) -> None:
-    slot_acquired = False
     try:
         # Lifecycle order must remain stable across both coordination layers:
         #   1) repo lock row is claimed in analyze_repo() before the background task is queued
@@ -1026,9 +1025,9 @@ async def _build_repo_analysis_with_timeout(
         #   3) background work is executed
         #   4) the global slot is released in finally after work completes
         #   5) the repo lock row is cleared by _build_repo_analysis() once the worker finishes or fails
-        if not slot_preacquired:
-            slot_acquired = await acquire_repo_analysis_slot()
-            if not slot_acquired:
+        if slot_token is None:
+            slot_token = await acquire_repo_analysis_slot()
+            if slot_token is None:
                 logger.info("Skipping repo analysis {} because the concurrent cap is already reached", repo_id)
                 await asyncio.to_thread(_mark_repo_analysis_failed, repo_id)
                 return
@@ -1048,8 +1047,8 @@ async def _build_repo_analysis_with_timeout(
             _analysis_error_message(exc),
         )
     finally:
-        if slot_preacquired or slot_acquired:
-            await release_repo_analysis_slot()
+        if slot_token is not None:
+            await release_repo_analysis_slot(slot_token)
 
 
 async def resume_pending_repo_analyses() -> None:
@@ -1136,7 +1135,7 @@ async def analyze_repo(
             status_code=409, detail="Repository analysis is already in progress"
         )
 
-    slot_acquired = False
+    slot_token: str | None = None
     try:
         cached_repo = await asyncio.to_thread(
             _get_fresh_repo_analysis, repo_key, payload.force
@@ -1157,8 +1156,8 @@ async def analyze_repo(
             owner, repo_name = full_name.split("/", 1)
         branch = metadata.get("default_branch", "main")
 
-        slot_acquired = await acquire_repo_analysis_slot()
-        if not slot_acquired:
+        slot_token = await acquire_repo_analysis_slot()
+        if slot_token is None:
             raise HTTPException(
                 status_code=503,
                 detail="Too many repository analyses are currently running",
@@ -1176,12 +1175,12 @@ async def analyze_repo(
                 repo_name,
                 repo_key,
                 branch,
-                True,
+                slot_token,
                 client_ip,
             )
         except Exception as exc:
-            await release_repo_analysis_slot()
-            slot_acquired = False
+            await release_repo_analysis_slot(slot_token)
+            slot_token = None
             await asyncio.to_thread(
                 _mark_repo_analysis_failed, repo_id, "Analysis failed"
             )
@@ -1191,6 +1190,7 @@ async def analyze_repo(
             raise HTTPException(
                 status_code=500, detail="Repository saved but analysis scheduling failed"
             )
+        slot_token = None
 
         response = AnalyzeResponse(
             id=repo_id,
@@ -1207,8 +1207,8 @@ async def analyze_repo(
         )
         return response
     except Exception:
-        if slot_acquired:
-            await release_repo_analysis_slot()
+        if slot_token is not None:
+            await release_repo_analysis_slot(slot_token)
         raise
     finally:
         await repo_lock_manager.release(repo_key, lock_token)

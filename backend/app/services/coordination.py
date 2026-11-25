@@ -6,6 +6,7 @@ import uuid
 
 from redis import Redis
 
+from app.config import settings
 from app.services.redis_client import get_redis_client
 
 
@@ -32,13 +33,12 @@ class RedisConcurrencyGate:
     def __init__(
         self,
         max_concurrent_analyses: int,
-        slot_ttl_seconds: int = 180,
+        slot_ttl_seconds: int = settings.ANALYSIS_TIMEOUT_SECONDS + 60,
         redis_client: Redis | None = None,
     ) -> None:
         self._max_concurrent_analyses = max_concurrent_analyses
         self._slot_ttl_seconds = slot_ttl_seconds
         self._redis_client = redis_client
-        self._held_token: str | None = None
 
     def _client(self) -> Redis:
         return self._redis_client or get_redis_client()
@@ -58,20 +58,10 @@ class RedisConcurrencyGate:
         client = self._client()
         client.zrem(self.KEY, token)
 
-    async def try_acquire(self) -> bool:
-        token = await asyncio.to_thread(self._try_acquire_sync)
-        if token is None:
-            return False
-        # One gate instance is only ever used for one in-flight acquire at a
-        # time in this codebase (see acquire/release_repo_analysis_slot
-        # below), so tracking a single held token here is sufficient.
-        self._held_token = token
-        return True
+    async def try_acquire(self) -> str | None:
+        return await asyncio.to_thread(self._try_acquire_sync)
 
-    async def release(self) -> None:
-        if self._held_token is None:
-            return
-        token, self._held_token = self._held_token, None
+    async def release(self, token: str) -> None:
         await asyncio.to_thread(self._release_sync, token)
 
 

@@ -96,6 +96,22 @@ def test_cors_allows_configured_frontend_origin(client):
     assert response.headers["access-control-allow-origin"] == "http://localhost:5173"
 
 
+def test_concurrent_analysis_slot_acquires_release_each_token():
+    fake_redis = InMemoryRedis()
+    gate = RedisConcurrencyGate(3, redis_client=fake_redis)
+
+    async def acquire_and_release_slots():
+        tokens = await asyncio.gather(*(gate.try_acquire() for _ in range(3)))
+        assert all(isinstance(token, str) for token in tokens)
+        assert len(set(tokens)) == 3
+        await asyncio.gather(*(gate.release(token) for token in tokens))
+
+    asyncio.run(acquire_and_release_slots())
+
+    assert gate._slot_ttl_seconds == repos_module.settings.ANALYSIS_TIMEOUT_SECONDS + 60
+    assert fake_redis.zcard(gate.KEY) == 0
+
+
 def test_repo_status_includes_error_message(client):
     with database_module.SessionLocal() as db:
         repo = Repository(
@@ -956,8 +972,8 @@ def test_analyze_rejects_when_rate_limited(client, monkeypatch):
 
 
 def test_analyze_rejects_when_concurrency_cap_is_exhausted(client, monkeypatch):
-    async def reject_acquire() -> bool:
-        return False
+    async def reject_acquire() -> str | None:
+        return None
 
     monkeypatch.setattr(
         repos_module.github_service, "parse_repo_url", lambda url: ("octocat", "hello-world")
@@ -981,8 +997,8 @@ def test_analyze_rejects_when_concurrency_cap_is_exhausted(client, monkeypatch):
 
 
 def test_build_repo_analysis_with_timeout_sets_failed_when_slot_unavailable(client, monkeypatch):
-    async def reject_acquire() -> bool:
-        return False
+    async def reject_acquire() -> str | None:
+        return None
 
     called = False
 
@@ -1089,9 +1105,10 @@ def test_repo_analysis_stores_safe_failure_message(
 
 def test_repo_analysis_timeout_stores_timeout_message(client, monkeypatch):
     async def acquire_slot():
-        return True
+        return "slot-token"
 
-    async def release_slot():
+    async def release_slot(token):
+        assert token == "slot-token"
         return None
 
     async def slow_analysis(*args, **kwargs):
