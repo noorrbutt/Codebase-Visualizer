@@ -175,7 +175,9 @@ def test_fetch_files_concurrent_returns_contents_for_all_paths(monkeypatch):
     monkeypatch.setattr(GithubService, "get_file_content", fake_get_file_content)
 
     paths = ["src/app.py", "src/utils.py", "README.md"]
-    contents = service.fetch_files_concurrent("octocat", "hello-world", "main", paths)
+    contents, failed_paths = service.fetch_files_concurrent(
+        "octocat", "hello-world", "main", paths
+    )
 
     assert isinstance(contents, dict)
     assert len(contents) == 3
@@ -185,6 +187,44 @@ def test_fetch_files_concurrent_returns_contents_for_all_paths(monkeypatch):
         "README.md": "content for README.md",
     }
     assert all(path in contents for path in paths)
+    assert failed_paths == []
+
+
+def test_fetch_files_concurrent_returns_failed_paths(monkeypatch):
+    service = GithubService()
+
+    def fake_get_file_content(self, owner, repo, branch, path):
+        if path == "src/missing.py":
+            raise requests.RequestException("connection failed")
+        return "content"
+
+    monkeypatch.setattr(GithubService, "get_file_content", fake_get_file_content)
+
+    contents, failed_paths = service.fetch_files_concurrent(
+        "octocat", "hello-world", "main", ["src/ok.py", "src/missing.py"]
+    )
+
+    assert contents == {"src/ok.py": "content"}
+    assert failed_paths == ["src/missing.py"]
+
+
+@pytest.mark.parametrize("status_code", [403, 429])
+def test_fetch_files_concurrent_raises_rate_limit_for_forbidden_responses(
+    monkeypatch, status_code
+):
+    service = GithubService()
+    response = requests.Response()
+    response.status_code = status_code
+
+    def fail_file(*args):
+        raise requests.HTTPError(f"HTTP {status_code}", response=response)
+
+    monkeypatch.setattr(service, "get_file_content", fail_file)
+
+    with pytest.raises(GithubRateLimitError, match=f"HTTP {status_code}"):
+        service.fetch_files_concurrent(
+            "octocat", "hello-world", "main", ["src/app.py"]
+        )
 
 
 def test_get_file_tree_accepts_branch_names_with_slashes(monkeypatch):

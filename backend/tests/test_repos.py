@@ -521,7 +521,9 @@ def test_rebuild_preserves_ai_fields_for_unchanged_files(client, monkeypatch):
         repos_module.github_service,
         "fetch_files_concurrent",
         lambda owner, repo_name, ref, file_paths: (
-            {"src/app.py": "one\\ntwo\\n"} if ref == commit_sha else {}
+            ({"src/app.py": "one\\ntwo\\n"}, [])
+            if ref == commit_sha
+            else ({}, [])
         ),
     )
     monkeypatch.setattr(
@@ -1180,7 +1182,7 @@ def test_build_repo_analysis_marks_ready_when_ai_summary_fails(client, monkeypat
     def fetch_files(owner, repo_name, branch, file_paths):
         assert branch == commit_sha
         observed_stages.append(get_stage())
-        return {"src/app.py": "print('hi')"}
+        return {"src/app.py": "print('hi')"}, []
 
     def parse_file(path, content):
         observed_stages.append(get_stage())
@@ -1261,6 +1263,105 @@ def test_update_repo_analysis_state_preserves_summary_when_none_is_passed(client
         assert repo.summary == "previous summary"
 
 
+@pytest.mark.parametrize(
+    ("failed_count", "expected_status"),
+    [(4, "failed"), (2, "ready"), (1, "ready")],
+)
+def test_analysis_fetch_failure_threshold(
+    client, monkeypatch, failed_count, expected_status
+):
+    repo_key = "https://github.com/octocat/fetch-threshold"
+    requested_paths = [f"src/file_{index}.py" for index in range(20)]
+    failed_paths = requested_paths[:failed_count]
+    contents = {
+        path: "print('ok')"
+        for path in requested_paths
+        if path not in failed_paths
+    }
+
+    with database_module.SessionLocal() as db:
+        repo = Repository(
+            owner="octocat",
+            repo_name="fetch-threshold",
+            github_url=repo_key,
+            default_branch="main",
+            status="parsing",
+        )
+        db.add(repo)
+        db.commit()
+        repo_id = repo.id
+
+    parsed_paths = []
+    summary_calls = []
+    monkeypatch.setattr(
+        repos_module, "_get_or_store_repo_commit_sha", lambda *args: "commit-sha"
+    )
+    monkeypatch.setattr(
+        repos_module.github_service,
+        "get_file_tree",
+        lambda *args: [{"path": path} for path in requested_paths],
+    )
+    monkeypatch.setattr(
+        repos_module.github_service,
+        "fetch_files_concurrent",
+        lambda *args: (contents, failed_paths),
+    )
+    monkeypatch.setattr(
+        repos_module.github_service, "get_typescript_config", lambda *args: None
+    )
+    monkeypatch.setattr(repos_module, "_fetch_manifest_excerpt", lambda *args: None)
+    monkeypatch.setattr(repos_module.settings, "AUTO_ANALYZE_TOP_FILES", 0)
+
+    def parse_file(path, content):
+        parsed_paths.append(path)
+        return {"imports": [], "language": "python", "line_count": 1}
+
+    def generate_summary(*args, **kwargs):
+        summary_calls.append(True)
+        return "summary"
+
+    monkeypatch.setattr(repos_module.code_parser, "parse", parse_file)
+    monkeypatch.setattr(
+        repos_module.ai_service, "generate_repo_summary", generate_summary
+    )
+
+    asyncio.run(
+        repos_module._build_repo_analysis(
+            repo_id,
+            "octocat",
+            "fetch-threshold",
+            repo_key,
+            "main",
+        )
+    )
+
+    with database_module.SessionLocal() as db:
+        repo = db.get(Repository, repo_id)
+        assert repo is not None
+        assert repo.status == expected_status
+        if expected_status == "failed":
+            assert repo.error_message == (
+                "Failed to fetch 4 of 20 repository files; more than 10% could not be fetched."
+            )
+            assert repo.skipped_files is None
+            assert repo.total_files == 0
+            assert parsed_paths == []
+            assert summary_calls == []
+        else:
+            assert repo.error_message is None
+            assert repo.skipped_files == failed_count
+            assert repo.total_files == 20 - failed_count
+            assert len(parsed_paths) == 20 - failed_count
+            assert summary_calls == [True]
+
+    if expected_status == "ready":
+        response = client.get(
+            f"/repos/{repo_id}", headers={"X-API-Key": "test-api-key"}
+        )
+        assert response.status_code == 200
+        assert response.json()["skipped_files"] == failed_count
+
+
 def test_build_repo_analysis_fails_without_supported_files(client, monkeypatch):
     repo_key = "https://github.com/octocat/empty"
     with database_module.SessionLocal() as db:
@@ -1291,7 +1392,7 @@ def test_build_repo_analysis_fails_without_supported_files(client, monkeypatch):
     monkeypatch.setattr(
         repos_module.github_service,
         "fetch_files_concurrent",
-        lambda *args: fetch_calls.append(args),
+        lambda *args: (fetch_calls.append(args), []),
     )
     monkeypatch.setattr(
         repos_module.ai_service,
@@ -1405,7 +1506,7 @@ def test_build_repo_analysis_uses_readme_manifest_and_top_files(client, monkeypa
     monkeypatch.setattr(
         repos_module.github_service,
         "fetch_files_concurrent",
-        lambda *args: contents,
+        lambda *args: (contents, []),
     )
     monkeypatch.setattr(
         repos_module.github_service,
@@ -1481,7 +1582,7 @@ def test_build_repo_analysis_uses_tsconfig_aliases_for_edges(client, monkeypatch
     monkeypatch.setattr(
         repos_module.github_service,
         "fetch_files_concurrent",
-        lambda *args: contents,
+        lambda *args: (contents, []),
     )
     monkeypatch.setattr(
         repos_module.github_service,

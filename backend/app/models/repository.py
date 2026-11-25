@@ -16,6 +16,7 @@ class Repository(Base):
     commit_sha = Column(String, nullable=True)
     total_files = Column(Integer, nullable=False, default=0)
     discovered_files = Column(Integer, nullable=True)
+    skipped_files = Column(Integer, nullable=True)
     truncated = Column(Boolean, nullable=False, default=False, server_default=false())
     summary = Column(Text, nullable=True)
     status = Column(String, nullable=False, default="parsing")

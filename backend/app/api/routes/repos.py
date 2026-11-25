@@ -720,6 +720,7 @@ def _persist_repo_analysis_files(
     edges: list[FileEdge],
     discovered_files: int | None = None,
     truncated: bool = False,
+    skipped_files: int | None = None,
 ) -> bool:
     db = SessionLocal()
     try:
@@ -778,6 +779,7 @@ def _persist_repo_analysis_files(
 
         repo.total_files = len(node_records)
         repo.discovered_files = discovered_files
+        repo.skipped_files = skipped_files
         repo.truncated = truncated
         repo.status = "parsing"
         db.commit()
@@ -815,6 +817,7 @@ def _create_repo_analysis_record(
             repo.status = "parsing"
             repo.stage = None
             repo.error_message = None
+            repo.skipped_files = None
         else:
             repo = Repository(
                 github_url=repo_key,
@@ -884,6 +887,7 @@ def _get_fresh_repo_analysis(repo_key: str, force: bool) -> dict | None:
             "summary": repo.summary,
             "total_files": repo.total_files,
             "discovered_files": repo.discovered_files,
+            "skipped_files": repo.skipped_files,
             "truncated": repo.truncated,
         }
     finally:
@@ -930,9 +934,17 @@ async def _build_repo_analysis(
             )
             return
 
-        contents = await asyncio.to_thread(
+        contents, failed_paths = await asyncio.to_thread(
             github_service.fetch_files_concurrent, owner, repo_name, commit_sha, file_paths
         )
+        if len(failed_paths) * 10 > len(file_paths):
+            await asyncio.to_thread(
+                _mark_repo_analysis_failed,
+                repo_id,
+                f"Failed to fetch {len(failed_paths)} of {len(file_paths)} repository files; "
+                "more than 10% could not be fetched.",
+            )
+            return
 
         await asyncio.to_thread(_set_repo_analysis_stage, repo_id, "parsing")
         parsed_results: dict[str, list[str]] = {}
@@ -983,6 +995,7 @@ async def _build_repo_analysis(
             edges,
             discovered_files,
             tree_truncated,
+            len(failed_paths),
         )
         if not persisted:
             return
@@ -1217,6 +1230,7 @@ async def analyze_repo(
             summary=None,
             total_files=0,
             discovered_files=None,
+            skipped_files=None,
             truncated=False,
             nodes=[],
             edges=[],
@@ -1305,6 +1319,7 @@ def get_repo_by_name(owner: str, repo: str, db: Session = Depends(get_db)) -> An
         summary=record.summary,
         total_files=record.total_files,
         discovered_files=record.discovered_files,
+        skipped_files=record.skipped_files,
         truncated=record.truncated,
         nodes=node_records,
         edges=edges,
@@ -1339,6 +1354,7 @@ def get_repo(repo_id: int, db: Session = Depends(get_db)) -> AnalyzeResponse:
         summary=repo.summary,
         total_files=repo.total_files,
         discovered_files=repo.discovered_files,
+        skipped_files=repo.skipped_files,
         truncated=repo.truncated,
         nodes=node_records,
         edges=edges,

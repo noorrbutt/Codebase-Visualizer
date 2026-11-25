@@ -60,6 +60,7 @@ class AnalyzeResponse(BaseModel):
     edges: list[FileEdge]
     metrics: GraphMetrics | None = None
     discovered_files: int | None = None
+    skipped_files: int | None = None
     truncated: bool = False
 
     model_config = ConfigDict(from_attributes=True)

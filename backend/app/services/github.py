@@ -353,8 +353,11 @@ class GithubService:
                 return None
         return None
 
-    def fetch_files_concurrent(self, owner: str, repo: str, ref: str, paths: list[str]) -> dict[str, str]:
+    def fetch_files_concurrent(
+        self, owner: str, repo: str, ref: str, paths: list[str]
+    ) -> tuple[dict[str, str], list[str]]:
         contents: dict[str, str] = {}
+        failed_paths: set[str] = set()
         logger.info("Fetching {} files concurrently", len(paths))
 
         with ThreadPoolExecutor(max_workers=10) as executor:
@@ -364,13 +367,29 @@ class GithubService:
                 path = futures[future]
                 try:
                     contents[path] = future.result()
+                except GithubRateLimitError:
+                    raise
+                except requests.HTTPError as exc:
+                    status_code = exc.response.status_code if exc.response is not None else None
+                    if status_code in {403, 429}:
+                        raise GithubRateLimitError(
+                            f"GitHub returned HTTP {status_code} while fetching repository files"
+                        ) from exc
+                    logger.warning("Failed to fetch {}: {}", path, exc)
+                    failed_paths.add(path)
                 except requests.RequestException as exc:
                     logger.warning("Failed to fetch {}: {}", path, exc)
+                    failed_paths.add(path)
                 except Exception as exc:
                     logger.warning("Unexpected failure while fetching {}: {}", path, exc)
+                    failed_paths.add(path)
 
-        logger.info("Completed concurrent file fetch, successful={}", len(contents))
-        return contents
+        logger.info(
+            "Completed concurrent file fetch, successful={}, failed={}",
+            len(contents),
+            len(failed_paths),
+        )
+        return contents, sorted(failed_paths)
 
     def parse_repo_url(self, url: str) -> tuple[str, str]:
         logger.info("Parsing GitHub URL: {}", url)
