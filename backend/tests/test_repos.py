@@ -1194,6 +1194,7 @@ def test_build_repo_analysis_marks_ready_when_ai_summary_fails(client, monkeypat
             repo = db.get(Repository, repo_id)
             assert repo is not None
             observed_statuses.append(repo.status)
+            assert repo.stage == "summarizing"
         raise RuntimeError("AI summary backend unavailable")
 
     monkeypatch.setattr(repos_module.github_service, "get_file_tree", get_file_tree)
@@ -1233,8 +1234,31 @@ def test_build_repo_analysis_marks_ready_when_ai_summary_fails(client, monkeypat
         assert repo.summary is None
         assert repo.locked_at is None
         assert repo.worker_id is None
-    assert observed_stages == ["fetching", "fetching", "parsing", None]
-    assert observed_statuses == ["ready"]
+    assert observed_stages == ["fetching", "fetching", "parsing", "summarizing"]
+    assert observed_statuses == ["parsing"]
+
+
+def test_update_repo_analysis_state_preserves_summary_when_none_is_passed(client):
+    with database_module.SessionLocal() as db:
+        repo = Repository(
+            owner="octocat",
+            repo_name="hello-world",
+            github_url="https://github.com/octocat/hello-world",
+            default_branch="main",
+            status="parsing",
+            summary="previous summary",
+        )
+        db.add(repo)
+        db.commit()
+        repo_id = repo.id
+
+    repos_module._update_repo_analysis_state(repo_id, "ready", None, True)
+
+    with database_module.SessionLocal() as db:
+        repo = db.get(Repository, repo_id)
+        assert repo is not None
+        assert repo.status == "ready"
+        assert repo.summary == "previous summary"
 
 
 def test_build_repo_analysis_fails_without_supported_files(client, monkeypatch):
@@ -1352,6 +1376,16 @@ def test_build_repo_analysis_uses_readme_manifest_and_top_files(client, monkeypa
         "src/c.py": "print('done')",
     }
     captured_summary = {}
+    observed_ready_states = []
+    update_analysis_state = repos_module._update_repo_analysis_state
+
+    def capture_ready_state(*args, **kwargs):
+        update_analysis_state(*args, **kwargs)
+        if args[1] == "ready":
+            with database_module.SessionLocal() as db:
+                repo = db.get(Repository, repo_id)
+                assert repo is not None
+                observed_ready_states.append((repo.status, repo.summary))
 
     def missing_manifest(*args):
         response = requests.Response()
@@ -1384,9 +1418,17 @@ def test_build_repo_analysis_uses_readme_manifest_and_top_files(client, monkeypa
         "line_count": 1,
     })
     monkeypatch.setattr(repos_module.settings, "AUTO_ANALYZE_TOP_FILES", 0)
+    monkeypatch.setattr(
+        repos_module, "_update_repo_analysis_state", capture_ready_state
+    )
 
     def generate_repo_summary(*args, **kwargs):
         captured_summary.update(kwargs)
+        with database_module.SessionLocal() as db:
+            repo = db.get(Repository, repo_id)
+            assert repo is not None
+            assert repo.status == "parsing"
+            assert repo.stage == "summarizing"
         return "summary"
 
     monkeypatch.setattr(
@@ -1408,6 +1450,11 @@ def test_build_repo_analysis_uses_readme_manifest_and_top_files(client, monkeypa
     assert captured_summary["readme_excerpt"] == contents["README.md"][:1500]
     assert captured_summary["manifest_excerpt"] is None
     assert captured_summary["top_files"][:2] == ["src/b.py", "src/c.py"]
+    assert observed_ready_states == [("ready", "summary")]
+    with database_module.SessionLocal() as db:
+        repo = db.get(Repository, repo_id)
+        assert repo is not None
+        assert repo.summary == "summary"
 
 
 def test_build_repo_analysis_uses_tsconfig_aliases_for_edges(client, monkeypatch):
