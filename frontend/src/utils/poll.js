@@ -1,7 +1,7 @@
 import { apiFetch } from "./api";
 
 const POLL_INTERVAL_MS = 3000;
-const MAX_POLL_DURATION_MS = 3 * 60 * 1000;
+const MAX_POLL_DURATION_MS = 270_000;
 const MAX_CONSECUTIVE_FAILURES = 5;
 
 export function pollRepoStatus(id, { onStatus, onReady, onError }) {

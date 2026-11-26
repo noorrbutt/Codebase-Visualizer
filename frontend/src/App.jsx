@@ -269,6 +269,30 @@ export default function App() {
         body: JSON.stringify({ github_url: normalizedUrl }),
       });
       if (!isCurrent()) return;
+      if (res.status === 409) {
+        const existingRes = await apiFetch(
+          `/repos/by-name/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`,
+        );
+        if (!isCurrent()) return;
+        if (!existingRes.ok) {
+          const errorBody = await existingRes.json().catch(() => null);
+          throw new Error(errorMessage({
+            ...errorBody,
+            message: errorBody?.message || existingRes.statusText,
+          }));
+        }
+
+        const existingRepo = await existingRes.json();
+        if (!isCurrent()) return;
+        if (existingRepo.status === "ready") {
+          await fetchRepo(existingRepo.id, true, isCurrent);
+          return;
+        }
+        setData(existingRepo);
+        setPollStage(existingRepo.stage || "fetching");
+        startPolling(existingRepo.id, isCurrent);
+        return;
+      }
       if (!res.ok) {
         const errorBody = await res.json().catch(() => null);
         throw new Error(errorMessage({
@@ -630,7 +654,7 @@ export default function App() {
             </p>
             <button
               type="button"
-              onClick={reset}
+              onClick={() => (retryUrl ? analyze(retryUrl) : reset())}
               style={{ padding: "12px 20px", background: "var(--fg)", color: "var(--surface)", border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", fontSize: 14, fontWeight: 500 }}
             >
               Try again

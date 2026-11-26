@@ -59,6 +59,20 @@ describe("pollRepoStatus", () => {
     expect(onError).toHaveBeenCalledWith("Unable to check analysis status. Please try again.");
   });
 
+  it("allows polling up to the extended analysis timeout", async () => {
+    vi.useFakeTimers();
+    apiFetch.mockResolvedValue(response({ status: "parsing", stage: "summarizing" }));
+    const onError = vi.fn();
+
+    pollRepoStatus(12, { onStatus: vi.fn(), onReady: vi.fn(), onError });
+    await vi.advanceTimersByTimeAsync(269_999);
+    expect(onError).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect(onError).toHaveBeenCalledWith("Taking too long");
+  });
+
   it("does not poll after the returned stop function is called", async () => {
     vi.useFakeTimers();
     const stop = pollRepoStatus(11, {
