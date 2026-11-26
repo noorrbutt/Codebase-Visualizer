@@ -3,6 +3,7 @@ import DashboardPage from "./DashboardPage";
 import { getLangColor } from "./utils/lang";
 import { apiFetch } from "./utils/api";
 import { pollRepoStatus } from "./utils/poll";
+import { errorMessage, normalizeRepoInput } from "./utils/repoInput";
 
 function getRepoPath(owner, repo) {
   return `/r/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
@@ -68,9 +69,9 @@ function HomePage({ onAnalyze, onOpenRepo, loading, externalError, onClearError,
     e.preventDefault();
     setError("");
     onClearError();
-    if (!url.trim()) return setError("Paste a GitHub URL to get started.");
-    if (!url.includes("github.com/")) return setError("Must be a github.com URL.");
-    onAnalyze(url.trim());
+    const result = normalizeRepoInput(url);
+    if (result.error) return setError(result.error);
+    onAnalyze(result.url);
   };
 
   const errorMessage = error || externalError;
@@ -244,25 +245,36 @@ export default function App() {
   const routeActionsRef = useRef(null);
 
   const analyze = async (url, isCurrent = () => true) => {
+    const result = normalizeRepoInput(url);
+    if (result.error) {
+      setLoading(false);
+      setView("home");
+      setAnalysisError(result.error);
+      return;
+    }
+
+    const normalizedUrl = result.url;
+    const [, owner, repo] = new URL(normalizedUrl).pathname.split("/");
     setLoading(true);
     setView("loading");
-    setRetryUrl(url);
+    setRetryUrl(normalizedUrl);
     setFailureMessage("");
-    const parts = url.replace("https://github.com/", "").split("/");
-    setRepoName(parts.slice(0, 2).join("/"));
+    setRepoName(`${owner}/${repo}`);
     try {
       const res = await apiFetch(`/repos/analyze`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ github_url: url }),
+        body: JSON.stringify({ github_url: normalizedUrl }),
       });
       if (!isCurrent()) return;
       if (!res.ok) {
         const errorBody = await res.json().catch(() => null);
-        const detail = errorBody?.detail || errorBody?.message || res.statusText || "Analysis failed";
-        throw new Error(detail);
+        throw new Error(errorMessage({
+          ...errorBody,
+          message: errorBody?.message || res.statusText,
+        }));
       }
       const json = await res.json();
       if (!isCurrent()) return;
