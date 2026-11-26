@@ -62,6 +62,21 @@ def test_parse_js_imports():
     assert "./App" in result["imports"]
 
 
+@pytest.mark.parametrize(
+    ("extension", "expected_language"),
+    [
+        (".js", "javascript"),
+        (".jsx", "javascript"),
+        (".ts", "typescript"),
+        (".tsx", "typescript"),
+    ],
+)
+def test_parse_javascript_and_typescript_extensions(extension, expected_language):
+    result = CodeParser().parse(f"src/file{extension}", "")
+
+    assert result["language"] == expected_language
+
+
 def test_parse_js_dynamic_import_and_ignores_comment_imports():
     imports = CodeParser().parse(
         "src/App.jsx",

@@ -19,7 +19,10 @@ class CodeParser:
         if extension == ".py":
             language = "python"
             imports = self._parse_python(content)
-        elif extension in {".js", ".jsx", ".ts", ".tsx"}:
+        elif extension in {".ts", ".tsx"}:
+            language = "typescript"
+            imports = self._parse_js_ts(content)
+        elif extension in {".js", ".jsx"}:
             language = "javascript"
             imports = self._parse_js_ts(content)
         elif extension == ".html":
