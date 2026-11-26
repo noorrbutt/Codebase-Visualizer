@@ -72,6 +72,16 @@ def client(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(
         repos_module,
+        "repo_global_analysis_rate_limiter",
+        rate_limit_module.IPRateLimiter(
+            max_requests=repos_module.settings.ANALYZE_MAX_PER_HOUR,
+            window_seconds=3600,
+            redis_client=fake_redis,
+            key_prefix="repo_analysis_global",
+        ),
+    )
+    monkeypatch.setattr(
+        repos_module,
         "repo_lock_manager",
         RedisMutex(
             key_prefix="repo_lock",

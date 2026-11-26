@@ -3,12 +3,15 @@ from types import SimpleNamespace
 
 import pytest
 
-from fastapi import HTTPException
+from fastapi import BackgroundTasks, HTTPException
+from starlette.requests import Request
 
 from app.api.dependencies import _require_api_key
 from app.config import settings
+import app.api.routes.repos as repos_module
 import app.services.ai as ai_module
 from app.exceptions import AIBudgetExceededError, AIServiceError
+from app.schemas.repository import AnalyzeRequest
 from app.services.ai import AIService
 from app.services.github import GithubService
 from app.services.rate_limit import IPRateLimiter
@@ -594,6 +597,127 @@ def test_ip_rate_limiter_burst_within_same_second(fake_redis):
 
     results = [limiter.allow("203.0.113.10") for _ in range(3)]
     assert results == [True, True, False]
+
+
+def _prepare_global_analysis_limit(monkeypatch, fake_redis, cached_repo=None):
+    async def acquire_lock(key):
+        return "lock-token"
+
+    async def release_lock(key, token):
+        return None
+
+    async def acquire_slot():
+        return "slot-token"
+
+    monkeypatch.setattr(
+        repos_module,
+        "repo_lock_manager",
+        SimpleNamespace(acquire=acquire_lock, release=release_lock),
+    )
+    monkeypatch.setattr(repos_module.repo_rate_limiter, "allow", lambda ip: True)
+    monkeypatch.setattr(
+        repos_module,
+        "repo_global_analysis_rate_limiter",
+        IPRateLimiter(
+            max_requests=1,
+            window_seconds=3600,
+            redis_client=fake_redis,
+            key_prefix="repo_analysis_global_test",
+        ),
+    )
+    monkeypatch.setattr(
+        repos_module,
+        "_get_fresh_repo_analysis",
+        lambda *args: cached_repo,
+    )
+    monkeypatch.setattr(
+        repos_module.github_service,
+        "get_repo_metadata",
+        lambda *args: {"default_branch": "main"},
+    )
+    monkeypatch.setattr(repos_module, "acquire_repo_analysis_slot", acquire_slot)
+    monkeypatch.setattr(
+        repos_module, "_create_repo_analysis_record", lambda *args: 123
+    )
+    monkeypatch.setattr(
+        repos_module,
+        "_build_repo_analysis_with_timeout",
+        lambda *args, **kwargs: None,
+    )
+
+
+def _analysis_request(client_host):
+    return Request(
+        {
+            "type": "http",
+            "http_version": "1.1",
+            "method": "POST",
+            "scheme": "http",
+            "path": "/repos/analyze",
+            "raw_path": b"/repos/analyze",
+            "query_string": b"",
+            "headers": [],
+            "client": (client_host, 12345),
+            "server": ("test", 80),
+        }
+    )
+
+
+def _analyze_request(client_host):
+    return asyncio.run(
+        repos_module.analyze_repo(
+            AnalyzeRequest(github_url="https://github.com/octocat/hourly-limit"),
+            BackgroundTasks(),
+            _analysis_request(client_host),
+        )
+    )
+
+
+def test_global_analysis_hourly_limit_caps_new_analyses(monkeypatch, fake_redis):
+    _prepare_global_analysis_limit(monkeypatch, fake_redis)
+
+    response = _analyze_request("192.0.2.1")
+    assert response.status == "parsing"
+
+    with pytest.raises(HTTPException) as exc_info:
+        _analyze_request("192.0.2.2")
+
+    assert exc_info.value.status_code == 429
+    assert exc_info.value.detail == "Service is busy, try again later"
+
+
+def test_cached_analysis_does_not_consume_global_hourly_budget(
+    monkeypatch, fake_redis
+):
+    cached_repo = {
+        "id": 41,
+        "repo_name": "hourly-limit",
+        "owner": "octocat",
+        "default_branch": "main",
+        "summary": "cached",
+        "total_files": 0,
+        "discovered_files": 0,
+        "skipped_files": 0,
+        "truncated": False,
+    }
+    cache_result = [cached_repo]
+    _prepare_global_analysis_limit(monkeypatch, fake_redis)
+    monkeypatch.setattr(
+        repos_module,
+        "_get_fresh_repo_analysis",
+        lambda *args: cache_result[0],
+    )
+
+    cached_response = _analyze_request("192.0.2.3")
+    assert cached_response.status == "ready"
+
+    cache_result[0] = None
+    fresh_response = _analyze_request("192.0.2.4")
+    assert fresh_response.status == "parsing"
+
+    with pytest.raises(HTTPException) as exc_info:
+        _analyze_request("192.0.2.5")
+    assert exc_info.value.status_code == 429
 
 def zremrangebyscore(self, key, min_score, max_score):
     members = self.sorted_sets.get(key, {})

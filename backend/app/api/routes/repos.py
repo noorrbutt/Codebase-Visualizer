@@ -54,6 +54,11 @@ repo_rate_limiter = IPRateLimiter(
     window_seconds=60,
     key_prefix="repo_analysis",
 )
+repo_global_analysis_rate_limiter = IPRateLimiter(
+    max_requests=settings.ANALYZE_MAX_PER_HOUR,
+    window_seconds=3600,
+    key_prefix="repo_analysis_global",
+)
 repo_read_rate_limiter = IPRateLimiter(
     max_requests=60,
     window_seconds=60,
@@ -1234,6 +1239,12 @@ async def analyze_repo(
                 status="ready",
                 nodes=[],
                 edges=[],
+            )
+
+        if not await asyncio.to_thread(repo_global_analysis_rate_limiter.allow, "all"):
+            raise HTTPException(
+                status_code=429,
+                detail="Service is busy, try again later",
             )
 
         metadata = await asyncio.to_thread(

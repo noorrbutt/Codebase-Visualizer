@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     # "https://a.com,https://b.com" and '["https://a.com"]' reach the validator below.
     CORS_ORIGINS: Annotated[list[str], NoDecode] = ["http://localhost:5173", "http://localhost:3000"]
     RATE_LIMIT_REQUESTS_PER_MINUTE: int = 20
+    ANALYZE_MAX_PER_HOUR: int = 120
     MAX_REPO_FILES: int = 300
     MAX_CONCURRENT_REPO_ANALYSES: int = 5
     AUTO_ANALYZE_TOP_FILES: int = 5
