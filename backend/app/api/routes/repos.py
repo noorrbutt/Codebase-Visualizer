@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 
@@ -68,6 +70,22 @@ async def _enforce_repo_read_limit(request: Request) -> None:
 # multiple instances, not just within one running process.
 repo_analysis_concurrency_gate: RedisConcurrencyGate | None = None
 repo_lock_manager = RedisMutex(key_prefix="repo_lock", ttl_seconds=settings.RECLAIM_LOCK_AFTER_SECONDS)
+_bg_tasks: set[asyncio.Task[None]] = set()
+
+
+@dataclass
+class _RepoAnalysisSummaryContext:
+    repo_name: str
+    file_paths: list[str]
+    client_ip: str | None
+    readme_excerpt: str | None
+    manifest_excerpt: str | None
+    top_files: list[str]
+
+
+def _track_background_task(task: asyncio.Task[None]) -> None:
+    _bg_tasks.add(task)
+    task.add_done_callback(_bg_tasks.discard)
 
 
 def initialize_repo_analysis_concurrency_gate(limit: int | None = None) -> RedisConcurrencyGate:
@@ -901,7 +919,9 @@ async def _build_repo_analysis(
     github_url: str,
     branch: str,
     client_ip: str | None = None,
-) -> None:
+    cancel_event: threading.Event | None = None,
+    defer_summary: bool = False,
+) -> _RepoAnalysisSummaryContext | None:
     try:
         logger.info("Starting background analysis for repo {}", repo_id)
         await asyncio.to_thread(_set_repo_analysis_stage, repo_id, "fetching")
@@ -934,9 +954,17 @@ async def _build_repo_analysis(
             )
             return
 
-        contents, failed_paths = await asyncio.to_thread(
-            github_service.fetch_files_concurrent, owner, repo_name, commit_sha, file_paths
-        )
+        fetch_args = (owner, repo_name, commit_sha, file_paths)
+        if cancel_event is None:
+            contents, failed_paths = await asyncio.to_thread(
+                github_service.fetch_files_concurrent, *fetch_args
+            )
+        else:
+            contents, failed_paths = await asyncio.to_thread(
+                github_service.fetch_files_concurrent,
+                *fetch_args,
+                cancel_event=cancel_event,
+            )
         if len(failed_paths) * 10 > len(file_paths):
             await asyncio.to_thread(
                 _mark_repo_analysis_failed,
@@ -1000,35 +1028,18 @@ async def _build_repo_analysis(
         if not persisted:
             return
 
-        await asyncio.to_thread(_set_repo_analysis_stage, repo_id, "summarizing")
-        summary = None
-        try:
-            summary = await asyncio.wait_for(
-                asyncio.to_thread(
-                    ai_service.generate_repo_summary,
-                    repo_name,
-                    file_paths,
-                    client_ip=client_ip,
-                    readme_excerpt=readme_excerpt,
-                    manifest_excerpt=manifest_excerpt,
-                    top_files=top_files,
-                ),
-                timeout=20,
-            )
-        except Exception as exc:
-            logger.warning(
-                "AI summary unavailable for repo {}: {}",
-                repo_id,
-                exc,
-            )
-            logger.info("Background repo analysis completed without AI summary for repo {}", repo_id)
-
-        await asyncio.to_thread(
-            _update_repo_analysis_state, repo_id, "ready", summary, True
+        summary_context = _RepoAnalysisSummaryContext(
+            repo_name=repo_name,
+            file_paths=file_paths,
+            client_ip=client_ip,
+            readme_excerpt=readme_excerpt,
+            manifest_excerpt=manifest_excerpt,
+            top_files=top_files,
         )
-        if settings.AUTO_ANALYZE_TOP_FILES > 0:
-            asyncio.create_task(_auto_analyze_top_files(repo_id))
-        logger.info("Background repo analysis completed for repo {}", repo_id)
+        if defer_summary:
+            return summary_context
+
+        await _complete_repo_analysis_summary(repo_id, summary_context)
     except Exception as exc:
         logger.error("Background repo analysis failed for repo {}: {}", repo_id, exc)
         await asyncio.to_thread(
@@ -1036,6 +1047,41 @@ async def _build_repo_analysis(
             repo_id,
             _analysis_error_message(exc),
         )
+    return None
+
+
+async def _complete_repo_analysis_summary(
+    repo_id: int, context: _RepoAnalysisSummaryContext
+) -> None:
+    await asyncio.to_thread(_set_repo_analysis_stage, repo_id, "summarizing")
+    summary = None
+    try:
+        summary = await asyncio.wait_for(
+            asyncio.to_thread(
+                ai_service.generate_repo_summary,
+                context.repo_name,
+                context.file_paths,
+                client_ip=context.client_ip,
+                readme_excerpt=context.readme_excerpt,
+                manifest_excerpt=context.manifest_excerpt,
+                top_files=context.top_files,
+            ),
+            timeout=20,
+        )
+    except Exception as exc:
+        logger.warning(
+            "AI summary unavailable for repo {}: {}",
+            repo_id,
+            exc,
+        )
+        logger.info("Background repo analysis completed without AI summary for repo {}", repo_id)
+
+    await asyncio.to_thread(
+        _update_repo_analysis_state, repo_id, "ready", summary, True
+    )
+    if settings.AUTO_ANALYZE_TOP_FILES > 0:
+        _track_background_task(asyncio.create_task(_auto_analyze_top_files(repo_id)))
+    logger.info("Background repo analysis completed for repo {}", repo_id)
 
 
 async def _build_repo_analysis_with_timeout(
@@ -1047,6 +1093,7 @@ async def _build_repo_analysis_with_timeout(
     slot_token: str | None = None,
     client_ip: str | None = None,
 ) -> None:
+    cancel_event = threading.Event()
     try:
         # Lifecycle order must remain stable across both coordination layers:
         #   1) repo lock row is claimed in analyze_repo() before the background task is queued
@@ -1060,11 +1107,23 @@ async def _build_repo_analysis_with_timeout(
                 logger.info("Skipping repo analysis {} because the concurrent cap is already reached", repo_id)
                 await asyncio.to_thread(_mark_repo_analysis_failed, repo_id)
                 return
-        await asyncio.wait_for(
-            _build_repo_analysis(repo_id, owner, repo_name, github_url, branch, client_ip=client_ip),
+        summary_context = await asyncio.wait_for(
+            _build_repo_analysis(
+                repo_id,
+                owner,
+                repo_name,
+                github_url,
+                branch,
+                client_ip=client_ip,
+                cancel_event=cancel_event,
+                defer_summary=True,
+            ),
             timeout=settings.ANALYSIS_TIMEOUT_SECONDS,
         )
+        if summary_context is not None:
+            await _complete_repo_analysis_summary(repo_id, summary_context)
     except asyncio.TimeoutError:
+        cancel_event.set()
         await asyncio.to_thread(
             _mark_repo_analysis_failed, repo_id, "Analysis timed out"
         )

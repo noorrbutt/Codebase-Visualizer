@@ -1111,10 +1111,97 @@ def test_repo_analysis_timeout_stores_timeout_message(client, monkeypatch):
 
     async def release_slot(token):
         assert token == "slot-token"
+        released_tokens.append(token)
         return None
 
-    async def slow_analysis(*args, **kwargs):
-        await asyncio.sleep(1)
+    fetch_started = threading.Event()
+    fetch_finished = threading.Event()
+    cancel_events = []
+    released_tokens = []
+
+    def blocked_fetch(owner, repo_name, commit_sha, file_paths, cancel_event=None):
+        cancel_events.append(cancel_event)
+        fetch_started.set()
+        assert cancel_event is not None
+        assert cancel_event.wait(2)
+        fetch_finished.set()
+        return {}, []
+
+    with database_module.SessionLocal() as db:
+        repo = Repository(
+            owner="octocat",
+            repo_name="hello-world",
+            github_url="https://github.com/octocat/hello-world",
+            default_branch="main",
+            status="parsing",
+        )
+        db.add(repo)
+        db.commit()
+        repo_id = repo.id
+
+    monkeypatch.setattr(repos_module.settings, "ANALYSIS_TIMEOUT_SECONDS", 0.3)
+    monkeypatch.setattr(repos_module, "acquire_repo_analysis_slot", acquire_slot)
+    monkeypatch.setattr(repos_module, "release_repo_analysis_slot", release_slot)
+    monkeypatch.setattr(
+        repos_module, "_get_or_store_repo_commit_sha", lambda *args: "commit-sha"
+    )
+    monkeypatch.setattr(
+        repos_module.github_service,
+        "get_file_tree",
+        lambda *args: [{"path": "src/app.py"}],
+    )
+    monkeypatch.setattr(
+        repos_module.github_service, "fetch_files_concurrent", blocked_fetch
+    )
+
+    async def run_with_timeout():
+        task = asyncio.create_task(
+            repos_module._build_repo_analysis_with_timeout(
+                repo_id,
+                "octocat",
+                "hello-world",
+                "https://github.com/octocat/hello-world",
+                "main",
+            )
+        )
+        assert await asyncio.to_thread(fetch_started.wait, 2)
+        await task
+
+    asyncio.run(run_with_timeout())
+    assert fetch_finished.wait(2)
+    assert len(cancel_events) == 1
+    assert cancel_events[0].is_set()
+    assert released_tokens == ["slot-token"]
+
+    with database_module.SessionLocal() as db:
+        repo = db.get(Repository, repo_id)
+        assert repo is not None
+        assert repo.status == "failed"
+        assert repo.error_message == "Analysis timed out"
+
+
+def test_repo_analysis_summary_runs_after_analysis_timeout_budget(client, monkeypatch):
+    async def acquire_slot():
+        return "slot-token"
+
+    async def release_slot(token):
+        assert token == "slot-token"
+
+    async def quick_analysis(*args, **kwargs):
+        return repos_module._RepoAnalysisSummaryContext(
+            repo_name="hello-world",
+            file_paths=["src/app.py"],
+            client_ip=None,
+            readme_excerpt=None,
+            manifest_excerpt=None,
+            top_files=["src/app.py"],
+        )
+
+    async def delayed_summary(repo_id, context):
+        await asyncio.sleep(0.05)
+        await asyncio.to_thread(
+            repos_module._update_repo_analysis_state, repo_id, "ready", "summary", True
+        )
 
     with database_module.SessionLocal() as db:
         repo = Repository(
@@ -1131,7 +1218,10 @@ def test_repo_analysis_timeout_stores_timeout_message(client, monkeypatch):
     monkeypatch.setattr(repos_module.settings, "ANALYSIS_TIMEOUT_SECONDS", 0.01)
     monkeypatch.setattr(repos_module, "acquire_repo_analysis_slot", acquire_slot)
     monkeypatch.setattr(repos_module, "release_repo_analysis_slot", release_slot)
-    monkeypatch.setattr(repos_module, "_build_repo_analysis", slow_analysis)
+    monkeypatch.setattr(repos_module, "_build_repo_analysis", quick_analysis)
+    monkeypatch.setattr(
+        repos_module, "_complete_repo_analysis_summary", delayed_summary
+    )
 
     asyncio.run(
         repos_module._build_repo_analysis_with_timeout(
@@ -1146,8 +1236,57 @@ def test_repo_analysis_timeout_stores_timeout_message(client, monkeypatch):
     with database_module.SessionLocal() as db:
         repo = db.get(Repository, repo_id)
         assert repo is not None
-        assert repo.status == "failed"
-        assert repo.error_message == "Analysis timed out"
+        assert repo.status == "ready"
+        assert repo.summary == "summary"
+
+
+def test_auto_file_analysis_task_is_retained_until_completion(client, monkeypatch):
+    async def auto_analysis(repo_id):
+        started.set()
+        await finish.wait()
+
+    async def run():
+        before = set(repos_module._bg_tasks)
+        await repos_module._complete_repo_analysis_summary(
+            repo_id,
+            repos_module._RepoAnalysisSummaryContext(
+                repo_name="hello-world",
+                file_paths=["src/app.py"],
+                client_ip=None,
+                readme_excerpt=None,
+                manifest_excerpt=None,
+                top_files=["src/app.py"],
+            ),
+        )
+        assert await asyncio.wait_for(started.wait(), timeout=1)
+        retained = repos_module._bg_tasks - before
+        assert len(retained) == 1
+        assert all(not task.done() for task in retained)
+        finish.set()
+        await asyncio.gather(*retained)
+        await asyncio.sleep(0)
+        assert retained.isdisjoint(repos_module._bg_tasks)
+
+    started = asyncio.Event()
+    finish = asyncio.Event()
+    with database_module.SessionLocal() as db:
+        repo = Repository(
+            owner="octocat",
+            repo_name="hello-world",
+            github_url="https://github.com/octocat/hello-world",
+            default_branch="main",
+            status="parsing",
+        )
+        db.add(repo)
+        db.commit()
+        repo_id = repo.id
+
+    monkeypatch.setattr(repos_module.settings, "AUTO_ANALYZE_TOP_FILES", 1)
+    monkeypatch.setattr(repos_module, "_auto_analyze_top_files", auto_analysis)
+    monkeypatch.setattr(
+        repos_module.ai_service, "generate_repo_summary", lambda *args, **kwargs: "summary"
+    )
+    asyncio.run(run())
 
 
 def test_build_repo_analysis_marks_ready_when_ai_summary_fails(client, monkeypatch):

@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import re
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import threading
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from datetime import datetime, timezone
 from urllib.parse import urlparse
 import urllib.parse
@@ -354,35 +355,75 @@ class GithubService:
         return None
 
     def fetch_files_concurrent(
-        self, owner: str, repo: str, ref: str, paths: list[str]
+        self,
+        owner: str,
+        repo: str,
+        ref: str,
+        paths: list[str],
+        cancel_event: threading.Event | None = None,
     ) -> tuple[dict[str, str], list[str]]:
         contents: dict[str, str] = {}
         failed_paths: set[str] = set()
         logger.info("Fetching {} files concurrently", len(paths))
 
         with ThreadPoolExecutor(max_workers=10) as executor:
-            futures = {executor.submit(self.get_file_content, owner, repo, ref, path): path for path in paths}
+            path_iterator = iter(paths)
+            futures = {}
 
-            for future in as_completed(futures):
-                path = futures[future]
+            def submit_next() -> bool:
+                if cancel_event is not None and cancel_event.is_set():
+                    return False
                 try:
-                    contents[path] = future.result()
-                except GithubRateLimitError:
-                    raise
-                except requests.HTTPError as exc:
-                    status_code = exc.response.status_code if exc.response is not None else None
-                    if status_code in {403, 429}:
-                        raise GithubRateLimitError(
-                            f"GitHub returned HTTP {status_code} while fetching repository files"
-                        ) from exc
-                    logger.warning("Failed to fetch {}: {}", path, exc)
-                    failed_paths.add(path)
-                except requests.RequestException as exc:
-                    logger.warning("Failed to fetch {}: {}", path, exc)
-                    failed_paths.add(path)
-                except Exception as exc:
-                    logger.warning("Unexpected failure while fetching {}: {}", path, exc)
-                    failed_paths.add(path)
+                    path = next(path_iterator)
+                except StopIteration:
+                    return False
+                if cancel_event is not None and cancel_event.is_set():
+                    return False
+                futures[executor.submit(self.get_file_content, owner, repo, ref, path)] = path
+                return True
+
+            for _ in range(min(10, len(paths))):
+                if not submit_next():
+                    break
+
+            while futures:
+                if cancel_event is not None and cancel_event.is_set():
+                    for future in futures:
+                        future.cancel()
+                    break
+
+                completed, _ = wait(
+                    futures,
+                    timeout=0.1 if cancel_event is not None else None,
+                    return_when=FIRST_COMPLETED,
+                )
+                if not completed:
+                    continue
+
+                for future in completed:
+                    path = futures.pop(future)
+                    if cancel_event is not None and cancel_event.is_set():
+                        future.cancel()
+                        continue
+                    try:
+                        contents[path] = future.result()
+                    except GithubRateLimitError:
+                        raise
+                    except requests.HTTPError as exc:
+                        status_code = exc.response.status_code if exc.response is not None else None
+                        if status_code in {403, 429}:
+                            raise GithubRateLimitError(
+                                f"GitHub returned HTTP {status_code} while fetching repository files"
+                            ) from exc
+                        logger.warning("Failed to fetch {}: {}", path, exc)
+                        failed_paths.add(path)
+                    except requests.RequestException as exc:
+                        logger.warning("Failed to fetch {}: {}", path, exc)
+                        failed_paths.add(path)
+                    except Exception as exc:
+                        logger.warning("Unexpected failure while fetching {}: {}", path, exc)
+                        failed_paths.add(path)
+                    submit_next()
 
         logger.info(
             "Completed concurrent file fetch, successful={}, failed={}",

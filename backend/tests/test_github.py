@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import threading
+
 import pytest
 import requests
 
@@ -225,6 +227,32 @@ def test_fetch_files_concurrent_raises_rate_limit_for_forbidden_responses(
         service.fetch_files_concurrent(
             "octocat", "hello-world", "main", ["src/app.py"]
         )
+
+
+def test_fetch_files_concurrent_stops_submitting_after_cancellation(monkeypatch):
+    service = GithubService()
+    cancel_event = threading.Event()
+    calls = []
+
+    def fake_get_file_content(self, owner, repo, branch, path):
+        calls.append(path)
+        cancel_event.set()
+        return "content"
+
+    monkeypatch.setattr(GithubService, "get_file_content", fake_get_file_content)
+
+    contents, failed_paths = service.fetch_files_concurrent(
+        "octocat",
+        "hello-world",
+        "main",
+        [f"src/file_{index}.py" for index in range(20)],
+        cancel_event=cancel_event,
+    )
+
+    assert cancel_event.is_set()
+    assert len(calls) <= 10
+    assert len(contents) <= len(calls)
+    assert failed_paths == []
 
 
 def test_get_file_tree_accepts_branch_names_with_slashes(monkeypatch):
