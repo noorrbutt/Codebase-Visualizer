@@ -69,5 +69,16 @@ def test_repository_skipped_files_migration_upgrades_sqlite(tmp_path, monkeypatc
             "src/legacy.js": "javascript",
             "src/component.jsx": "javascript",
         }
+
+        command.downgrade(config, "base")
+        command.upgrade(config, "head")
+
+        rebuilt_tables = set(inspect(engine).get_table_names())
+        assert {"repository", "file_node", "file_edge"} <= rebuilt_tables
+        with engine.connect() as connection:
+            rebuilt_revision = connection.execute(
+                text("SELECT version_num FROM alembic_version")
+            ).scalar_one()
+        assert rebuilt_revision == "20261126_relabel_typescript"
     finally:
         engine.dispose()
